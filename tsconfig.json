@@ -1,0 +1,26 @@
+{
+      "compilerOptions": {
+            "allowJs": true,
+            "checkJs": false,
+            "module": "commonjs",
+            "target": "es2024",
+            "outDir": "dist",
+            "rootDir": "src",
+            "verbatimModuleSyntax": false,
+            "moduleDetection": "legacy",
+            "strict": true,
+            "skipLibCheck": true,
+            "resolveJsonModule": true,
+            "allowArbitraryExtensions": true,
+            "esModuleInterop": true,
+            "allowSyntheticDefaultImports": true,
+            "paths": {
+                  "@/*": ["./src/*"],
+                  "@/core": ["./src/core/*"],
+                  "@/entrypoints": ["./src/entrypoints/*"],
+                  "@/modules": ["./src/modules/*"],
+            },
+      },
+      "include": ["src"],
+      "exclude": ["node_modules", "dist"],
+}
