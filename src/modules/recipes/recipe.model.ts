@@ -7,9 +7,11 @@ export type RecipeIngredient = {
 export type Recipe = {
   id: string;
   userId: string;
+  authorName?: string;
   title: string;
   ingredients: RecipeIngredient[];
   instructions: string[];
+  isPublic: boolean;
   createdAt: string;
 };
 

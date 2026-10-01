@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { createRecipe, listRecipes } from '../recipe.service';
+import { createRecipe, listCommunityRecipes, listRecipes, publishRecipe } from '../recipe.service';
 import { recipeSchema } from './recipe.dto';
 
 export class RecipeController {
@@ -32,5 +32,26 @@ export class RecipeController {
     }
 
     response.status(200).json(listRecipes(user.id));
+  };
+
+  static publish = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = publishRecipe(user.id, recipeId, user.name);
+    if (!result.ok) {
+      response.status(404).json({ code: result.code, message: result.message });
+      return;
+    }
+
+    response.status(200).json(result.data);
+  };
+
+  static communityList = (_request: Request, response: Response) => {
+    response.status(200).json(listCommunityRecipes());
   };
 }
