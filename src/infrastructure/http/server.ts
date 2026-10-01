@@ -2,6 +2,8 @@
 import express from 'express';
 import cors from 'cors';
 import authRouter from '../../modules/auth/http/auth.routes';
+import inventoryRouter from '../../modules/inventory/http/inventory.routes';
+import recipeRouter from '../../modules/recipes/http/recipe.routes';
 
 export function createServer() {
   const app = express();
@@ -13,6 +15,8 @@ export function createServer() {
   });
 
   app.use('/auth', authRouter);
+  app.use('/inventory', inventoryRouter);
+  app.use('/recipes', recipeRouter);
 
   return app;
 }
