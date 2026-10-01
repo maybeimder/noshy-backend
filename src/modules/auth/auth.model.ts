@@ -1,2 +1,18 @@
-// Contacta directamente con la base de datos, solo consultas.
-// El model no decide nada. Si le pides un usuario, te lo va a buscar.
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  password: string;
+  createdAt: string;
+};
+
+export type RegisterInput = {
+  name: string;
+  email: string;
+  password: string;
+};
+
+export type LoginInput = {
+  email: string;
+  password: string;
+};

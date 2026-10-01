@@ -7,7 +7,7 @@
     "dev": "tsx watch src/entrypoints/api.ts",
     "start": "node dist/entrypoints/api.js",
     "build": "tsc",
-    "test": "tsx --test src/infrastructure/http/server.test.ts"
+    "test": "tsx --test \"src/**/*.test.ts\""
   },
   "keywords": [],
   "author": "",
