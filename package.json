@@ -7,7 +7,7 @@
     "dev": "tsx watch src/entrypoints/api.ts",
     "start": "node dist/entrypoints/api.js",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsx --test src/infrastructure/http/server.test.ts"
   },
   "keywords": [],
   "author": "",
