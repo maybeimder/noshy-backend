@@ -27,6 +27,55 @@ export function listInventoryItems(userId: string) {
 
 const normalize = (value: string) => value.trim().toLowerCase();
 
+export function consumeInventory(userId: string, requirements: { name: string; quantity: number; unit: string }[]) {
+  const requiredByKey = new Map<string, { name: string; quantity: number; unit: string }>();
+  for (const requirement of requirements) {
+    const key = `${normalize(requirement.name)}::${normalize(requirement.unit)}`;
+    const current = requiredByKey.get(key);
+    if (current) {
+      current.quantity += requirement.quantity;
+    } else {
+      requiredByKey.set(key, { ...requirement });
+    }
+  }
+
+  const availableByKey = new Map<string, number>();
+  for (const item of listInventoryItems(userId)) {
+    const key = `${normalize(item.name)}::${normalize(item.unit)}`;
+    availableByKey.set(key, (availableByKey.get(key) ?? 0) + item.quantity);
+  }
+
+  const missingIngredients = [...requiredByKey.entries()]
+    .map(([key, required]) => ({
+      name: required.name,
+      quantity: Math.max(required.quantity - (availableByKey.get(key) ?? 0), 0),
+      unit: required.unit
+    }))
+    .filter((item) => item.quantity > 0);
+
+  if (missingIngredients.length > 0) {
+    return { ok: false, code: 'INVENTORY_INSUFFICIENT', missingIngredients } as const;
+  }
+
+  const remainingByKey = new Map([...requiredByKey].map(([key, value]) => [key, value.quantity]));
+  for (const item of listInventoryItems(userId)) {
+    const key = `${normalize(item.name)}::${normalize(item.unit)}`;
+    const remaining = remainingByKey.get(key) ?? 0;
+    if (remaining <= 0) {
+      continue;
+    }
+
+    const consumed = Math.min(item.quantity, remaining);
+    item.quantity -= consumed;
+    remainingByKey.set(key, remaining - consumed);
+  }
+
+  return {
+    ok: true,
+    consumedInventory: [...requiredByKey.values()]
+  } as const;
+}
+
 export function getPlanInventoryCoverage(userId: string, planId: string) {
   const plan = getPlanById(userId, planId);
   if (!plan) {
