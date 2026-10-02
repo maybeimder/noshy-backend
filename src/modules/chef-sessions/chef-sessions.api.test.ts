@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { createServer } from '../../infrastructure/http/server';
+import type { ChefAgentPort } from './chef-agent.port';
 
 const registerUser = async (serverPort: number, email: string, name: string) => {
   const response = await fetch(`http://127.0.0.1:${serverPort}/auth/register`, {
@@ -94,6 +95,57 @@ test('chef sessions load preferences, version updates on close, and reject stale
     assert.equal(staleCloseResponse.status, 409);
     const staleResult = await staleCloseResponse.json();
     assert.equal(staleResult.session.status, 'recovery_pending');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('chef agent receives context and returns an assistant message with detected feedback', async () => {
+  const agent: ChefAgentPort = {
+    respond: async (input) => ({
+      message: `Recibí: ${input.message}`,
+      feedback: [{
+        targetType: 'recipe',
+        targetId: 'recipe-agent-1',
+        targetName: 'Sopa de verduras',
+        eventType: 'prepared',
+        note: 'Detectado por el agente'
+      }]
+    })
+  };
+  const server = createServer({ chefAgent: agent }).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+
+  try {
+    const token = await registerUser(address.port, 'agent@noshy.com', 'Agent User');
+    const headers = { Authorization: `Bearer ${token}` };
+    const sessionResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions`, {
+      method: 'POST',
+      headers
+    });
+    const session = await sessionResponse.json();
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${session.id}/respond`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Ya preparé la sopa.' })
+    });
+
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.message.role, 'assistant');
+    assert.equal(result.message.content, 'Recibí: Ya preparé la sopa.');
+    assert.equal(result.feedback.length, 1);
+
+    const contextResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${session.id}/context`, {
+      headers
+    });
+    const context = await contextResponse.json();
+    assert.equal(context.messages.length, 2);
+    assert.equal(context.messages[1].role, 'assistant');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

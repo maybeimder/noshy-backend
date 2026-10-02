@@ -29,6 +29,14 @@ export function openChefSession(userId: string) {
 }
 
 export function addChefSessionMessage(userId: string, sessionId: string, content: string) {
+  return addSessionMessage(userId, sessionId, 'user', content);
+}
+
+export function addChefAssistantMessage(userId: string, sessionId: string, content: string) {
+  return addSessionMessage(userId, sessionId, 'assistant', content);
+}
+
+function addSessionMessage(userId: string, sessionId: string, role: ChefSessionMessage['role'], content: string) {
   const session = getActiveChefSession(userId, sessionId);
   if (!session) {
     return { ok: false, code: 'CHEF_SESSION_NOT_ACTIVE', message: 'La sesión del agente no está activa.' } as const;
@@ -38,7 +46,7 @@ export function addChefSessionMessage(userId: string, sessionId: string, content
     id: randomUUID(),
     sessionId,
     userId,
-    role: 'user',
+    role,
     content: content.trim(),
     createdAt: new Date().toISOString()
   };
@@ -59,6 +67,7 @@ export function getChefSessionContext(userId: string, sessionId: string) {
     ok: true,
     data: {
       sessionId: session.id,
+      userId: session.userId,
       preferencesMarkdown: session.preferencesMarkdown,
       preferencesVersion: session.preferencesVersion,
       messages: messagesBySessionId.get(sessionId) ?? []
