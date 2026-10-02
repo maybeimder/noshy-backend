@@ -61,8 +61,10 @@ test('POST /plans/generate creates a plan and GET /plans returns it', async () =
 
     assert.equal(generateResponse.status, 201);
     const generated = await generateResponse.json();
-    assert.equal(generated.days, 2);
-    assert.ok(Array.isArray(generated.meals));
+    assert.ok(generated.generationId);
+    assert.equal(generated.plans.length, 3);
+    assert.equal(generated.plans[0].days, 2);
+    assert.ok(Array.isArray(generated.plans[0].meals));
 
     const listResponse = await fetch(`http://127.0.0.1:${address.port}/plans`, {
       headers: { Authorization: `Bearer ${token}` }
@@ -101,7 +103,14 @@ test('POST /shopping-list generates a shopping list from a selected plan', async
       })
     });
 
-    const plan = await generateResponse.json();
+    const generation = await generateResponse.json();
+    const plan = generation.plans[0];
+
+    const selectResponse = await fetch(`http://127.0.0.1:${address.port}/plans/${plan.id}/select`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(selectResponse.status, 200);
 
     const shoppingResponse = await fetch(`http://127.0.0.1:${address.port}/shopping-list`, {
       method: 'POST',
@@ -165,9 +174,16 @@ test('POST /plans/generate links recipes and shopping list aggregates their ingr
     });
 
     assert.equal(planResponse.status, 201);
-    const plan = await planResponse.json();
+    const generation = await planResponse.json();
+    const plan = generation.plans[0];
     assert.equal(plan.meals[0].recipeId, recipe.id);
     assert.equal(plan.meals[0].title, 'Lentejas rápidas');
+
+    const selectResponse = await fetch(`http://127.0.0.1:${address.port}/plans/${plan.id}/select`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(selectResponse.status, 200);
 
     const shoppingResponse = await fetch(`http://127.0.0.1:${address.port}/shopping-list`, {
       method: 'POST',
@@ -184,6 +200,50 @@ test('POST /plans/generate links recipes and shopping list aggregates their ingr
       { name: 'Lentejas', quantity: 2, unit: 'tazas' },
       { name: 'Tomate', quantity: 1, unit: 'unidad' }
     ]);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
+test('POST /plans/:id/select selects one alternative and discards the other candidates', async () => {
+  const server = createServer().listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+
+  try {
+    const token = await registerUser(address.port, 'selection@noshy.com', 'Selection User');
+    const recipeId = await createRecipe(address.port, token, 'Receta seleccionable');
+    const generationResponse = await fetch(`http://127.0.0.1:${address.port}/plans/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ days: 1, goals: ['maintain'], mealsPerDay: 1, recipeIds: [recipeId] })
+    });
+    const generation = await generationResponse.json();
+    const selectedPlan = generation.plans[1];
+
+    const selectResponse = await fetch(`http://127.0.0.1:${address.port}/plans/${selectedPlan.id}/select`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(selectResponse.status, 200);
+
+    const generationListResponse = await fetch(
+      `http://127.0.0.1:${address.port}/plans/generations/${generation.generationId}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const generationList = await generationListResponse.json();
+    assert.equal(generationList.plans.find((plan: { id: string }) => plan.id === selectedPlan.id).status, 'selected');
+    assert.equal(generationList.plans.filter((plan: { status: string }) => plan.status === 'discarded').length, 2);
+
+    const discardedPlan = generationList.plans.find((plan: { status: string }) => plan.status === 'discarded');
+    const shoppingResponse = await fetch(`http://127.0.0.1:${address.port}/shopping-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ planId: discardedPlan.id })
+    });
+    assert.equal(shoppingResponse.status, 409);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

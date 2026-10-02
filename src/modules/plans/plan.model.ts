@@ -8,9 +8,13 @@ export type PlanMeal = {
   servings: number;
 };
 
+export type PlanStatus = 'candidate' | 'selected' | 'discarded';
+
 export type Plan = {
   id: string;
   userId: string;
+  generationId: string;
+  status: PlanStatus;
   days: number;
   mealsPerDay: number;
   goals: string[];
@@ -23,6 +27,11 @@ export type PlanInput = {
   goals: string[];
   mealsPerDay: number;
   recipeIds: string[];
+};
+
+export type PlanGeneration = {
+  generationId: string;
+  plans: Plan[];
 };
 
 export type ShoppingItem = {
