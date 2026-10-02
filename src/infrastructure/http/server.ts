@@ -2,6 +2,7 @@
 import express from 'express';
 import cors from 'cors';
 import authRouter from '../../modules/auth/http/auth.routes';
+import chefSessionRouter from '../../modules/chef-sessions/http/chef-session.routes';
 import { feedbackRouter, recommendationsRouter } from '../../modules/feedback/http/feedback.routes';
 import inventoryRouter from '../../modules/inventory/http/inventory.routes';
 import planRouter from '../../modules/plans/http/plan.routes';
@@ -18,6 +19,7 @@ export function createServer() {
   });
 
   app.use('/auth', authRouter);
+  app.use('/chef/sessions', chefSessionRouter);
   app.use('/feedback', feedbackRouter);
   app.use('/recommendations', recommendationsRouter);
   app.use('/inventory', inventoryRouter);
