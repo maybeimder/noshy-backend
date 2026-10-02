@@ -4,6 +4,7 @@ export type FeedbackEventType = 'selected' | 'discarded' | 'prepared' | 'repeate
 export interface FeedbackEntry {
   id: string;
   userId: string;
+  sessionId: string;
   targetType: FeedbackTargetType;
   targetId: string;
   targetName: string;
@@ -14,6 +15,7 @@ export interface FeedbackEntry {
 }
 
 export interface FeedbackInput {
+  sessionId: string;
   targetType: FeedbackTargetType;
   targetId: string;
   targetName: string;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const feedbackInputSchema = z.object({
+  sessionId: z.string().min(1, 'La sesión es requerida.'),
   targetType: z.enum(['recipe', 'plan', 'ingredient']),
   targetId: z.string().min(1, 'El identificador es requerido.'),
   targetName: z.string().min(1, 'El nombre es requerido.'),

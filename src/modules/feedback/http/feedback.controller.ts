@@ -21,6 +21,11 @@ export class FeedbackController {
     }
 
     const result = createFeedback(user.id, parsed.data, request.header('Idempotency-Key'));
+    if ('ok' in result && !result.ok) {
+      response.status(409).json({ code: result.code, message: result.message });
+      return;
+    }
+
     response.status(result.duplicate ? 200 : 201).json(result.entry);
   };
 
