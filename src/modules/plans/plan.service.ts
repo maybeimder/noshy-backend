@@ -61,6 +61,10 @@ export function listPlanGeneration(userId: string, generationId: string) {
   return (plansByUserId.get(userId) ?? []).filter((plan) => plan.generationId === generationId);
 }
 
+export function getPlanById(userId: string, planId: string) {
+  return (plansByUserId.get(userId) ?? []).find((plan) => plan.id === planId) ?? null;
+}
+
 export function selectPlan(userId: string, planId: string) {
   const plan = (plansByUserId.get(userId) ?? []).find((entry) => entry.id === planId);
   if (!plan) {

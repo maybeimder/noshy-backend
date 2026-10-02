@@ -6,6 +6,7 @@ const recipeRouter = Router();
 recipeRouter.use(requireAuth);
 recipeRouter.post('/', RecipeController.create);
 recipeRouter.get('/', RecipeController.list);
+recipeRouter.post('/adapt', RecipeController.adapt);
 recipeRouter.post('/:id/publish', RecipeController.publish);
 
 export default recipeRouter;
