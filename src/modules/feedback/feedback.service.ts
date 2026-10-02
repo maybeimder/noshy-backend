@@ -18,8 +18,7 @@ export function createFeedback(userId: string, input: FeedbackInput, idempotency
     targetType: input.targetType,
     targetId: input.targetId.trim(),
     targetName: input.targetName.trim(),
-    eventType: input.eventType ?? 'rated',
-    rating: input.rating === undefined ? undefined : Number(input.rating),
+    eventType: input.eventType,
     note: input.note?.trim(),
     idempotencyKey,
     createdAt: new Date().toISOString()
@@ -44,17 +43,20 @@ export function listFeedback(userId: string) {
 
 export function listRecommendations(userId: string) {
   const current = feedbackByUserId.get(userId) ?? [];
+  const positiveEvents = new Set(['selected', 'prepared', 'repeated']);
 
   return [...current]
-    .filter((entry) => entry.rating !== undefined && entry.rating >= 4)
-    .sort((left, right) => (right.rating ?? 0) - (left.rating ?? 0))
+    .filter((entry) => positiveEvents.has(entry.eventType))
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .map((entry) => ({
       id: entry.id,
       targetType: entry.targetType,
       targetId: entry.targetId,
       targetName: entry.targetName,
-      rating: entry.rating,
+      eventType: entry.eventType,
       note: entry.note ?? 'Sin observaciones.',
-      recommendation: (entry.rating ?? 0) >= 5 ? 'Recomiendo repetir esta opción.' : 'Te ha gustado bastante recientemente.'
+      recommendation: entry.eventType === 'repeated'
+        ? 'Esta opción se ha repetido y puede volver a recomendarse.'
+        : 'Esta opción mostró una señal positiva recientemente.'
     }));
 }

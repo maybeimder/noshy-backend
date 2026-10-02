@@ -1,5 +1,5 @@
 export type FeedbackTargetType = 'recipe' | 'plan' | 'ingredient';
-export type FeedbackEventType = 'selected' | 'discarded' | 'prepared' | 'repeated' | 'rated' | 'preference_changed';
+export type FeedbackEventType = 'selected' | 'discarded' | 'prepared' | 'repeated' | 'preference_changed';
 
 export interface FeedbackEntry {
   id: string;
@@ -8,7 +8,6 @@ export interface FeedbackEntry {
   targetId: string;
   targetName: string;
   eventType: FeedbackEventType;
-  rating?: number;
   note?: string;
   idempotencyKey?: string;
   createdAt: string;
@@ -18,7 +17,6 @@ export interface FeedbackInput {
   targetType: FeedbackTargetType;
   targetId: string;
   targetName: string;
-  eventType?: FeedbackEventType;
-  rating?: number;
+  eventType: FeedbackEventType;
   note?: string;
 }
