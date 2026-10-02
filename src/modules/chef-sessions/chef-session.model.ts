@@ -1,6 +1,6 @@
 export type ChefSessionStatus = 'active' | 'closed' | 'recovery_pending';
 export type ChefSessionCloseReason = 'manual' | 'timeout' | 'error';
-export type ChefSessionMessageRole = 'user';
+export type ChefSessionMessageRole = 'user' | 'assistant';
 
 export interface PreferencesDocument {
   userId: string;

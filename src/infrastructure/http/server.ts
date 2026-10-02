@@ -2,14 +2,15 @@
 import express from 'express';
 import cors from 'cors';
 import authRouter from '../../modules/auth/http/auth.routes';
-import chefSessionRouter from '../../modules/chef-sessions/http/chef-session.routes';
+import { createUnavailableChefAgent, type ChefAgentPort } from '../../modules/chef-sessions/chef-agent.port';
+import { createChefSessionRouter } from '../../modules/chef-sessions/http/chef-session.routes';
 import { feedbackRouter, recommendationsRouter } from '../../modules/feedback/http/feedback.routes';
 import inventoryRouter from '../../modules/inventory/http/inventory.routes';
 import planRouter from '../../modules/plans/http/plan.routes';
 import communityRecipesRouter from '../../modules/recipes/http/community-recipes.routes';
 import recipeRouter from '../../modules/recipes/http/recipe.routes';
 
-export function createServer() {
+export function createServer(options: { chefAgent?: ChefAgentPort } = {}) {
   const app = express();
   app.use(cors());
   app.use(express.json());
@@ -19,7 +20,7 @@ export function createServer() {
   });
 
   app.use('/auth', authRouter);
-  app.use('/chef/sessions', chefSessionRouter);
+  app.use('/chef/sessions', createChefSessionRouter(options.chefAgent ?? createUnavailableChefAgent()));
   app.use('/feedback', feedbackRouter);
   app.use('/recommendations', recommendationsRouter);
   app.use('/inventory', inventoryRouter);

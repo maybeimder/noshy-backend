@@ -1,4 +1,6 @@
 import type { Request, Response } from 'express';
+import type { ChefAgentPort } from '../chef-agent.port';
+import { respondWithChefAgent } from '../chef-agent.service';
 import { addChefSessionMessage, closeChefSession, getChefSessionContext, openChefSession } from '../chef-session.service';
 import { chefSessionMessageSchema, closeChefSessionSchema } from './chef-session.dto';
 
@@ -73,6 +75,29 @@ export class ChefSessionController {
     const result = getChefSessionContext(request.user.id, sessionId);
     if (!result.ok) {
       response.status(409).json({ code: result.code, message: result.message });
+      return;
+    }
+
+    response.status(200).json(result.data);
+  };
+
+  static respond = async (request: AuthenticatedRequest, response: Response, agent: ChefAgentPort) => {
+    const parsed = chefSessionMessageSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
+      return;
+    }
+
+    if (!request.user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const sessionId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = await respondWithChefAgent(request.user.id, sessionId, parsed.data.content, agent);
+    if (!result.ok) {
+      const status = result.code === 'CHEF_AGENT_UNAVAILABLE' ? 503 : result.code === 'FEEDBACK_NOT_RECORDED' ? 502 : 409;
+      response.status(status).json({ code: result.code, message: result.message });
       return;
     }
 
