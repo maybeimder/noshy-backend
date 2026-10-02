@@ -1,5 +1,6 @@
 export type ChefSessionStatus = 'active' | 'closed' | 'recovery_pending';
 export type ChefSessionCloseReason = 'manual' | 'timeout' | 'error';
+export type ChefSessionMessageRole = 'user';
 
 export interface PreferencesDocument {
   userId: string;
@@ -23,4 +24,13 @@ export interface ChefSession {
 export interface CloseChefSessionInput {
   reason: ChefSessionCloseReason;
   preferencesMarkdown: string;
+}
+
+export interface ChefSessionMessage {
+  id: string;
+  sessionId: string;
+  userId: string;
+  role: ChefSessionMessageRole;
+  content: string;
+  createdAt: string;
 }
