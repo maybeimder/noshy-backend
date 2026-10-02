@@ -33,6 +33,27 @@ test('chef sessions load preferences, version updates on close, and reject stale
     assert.equal(firstSession.status, 'active');
     assert.equal(firstSession.preferencesVersion, 1);
 
+    const messageResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${firstSession.id}/messages`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Quiero una receta rápida con lo que tengo.' })
+    });
+
+    assert.equal(messageResponse.status, 201);
+    const message = await messageResponse.json();
+    assert.equal(message.role, 'user');
+    assert.equal(message.content, 'Quiero una receta rápida con lo que tengo.');
+
+    const contextResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${firstSession.id}/context`, {
+      headers
+    });
+
+    assert.equal(contextResponse.status, 200);
+    const context = await contextResponse.json();
+    assert.match(context.preferencesMarkdown, /Preferencias/);
+    assert.equal(context.messages.length, 1);
+    assert.equal(context.messages[0].id, message.id);
+
     const staleOpenResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions`, {
       method: 'POST',
       headers

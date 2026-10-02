@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
-import { closeChefSession, openChefSession } from '../chef-session.service';
-import { closeChefSessionSchema } from './chef-session.dto';
+import { addChefSessionMessage, closeChefSession, getChefSessionContext, openChefSession } from '../chef-session.service';
+import { chefSessionMessageSchema, closeChefSessionSchema } from './chef-session.dto';
 
 type AuthenticatedRequest = Request & { user?: { id: string; name: string; email: string } };
 
@@ -35,6 +35,44 @@ export class ChefSessionController {
         message: result.message,
         ...('data' in result ? { session: result.data } : {})
       });
+      return;
+    }
+
+    response.status(200).json(result.data);
+  };
+
+  static addMessage = (request: AuthenticatedRequest, response: Response) => {
+    const parsed = chefSessionMessageSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
+      return;
+    }
+
+    if (!request.user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const sessionId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = addChefSessionMessage(request.user.id, sessionId, parsed.data.content);
+    if (!result.ok) {
+      response.status(409).json({ code: result.code, message: result.message });
+      return;
+    }
+
+    response.status(201).json(result.data);
+  };
+
+  static context = (request: AuthenticatedRequest, response: Response) => {
+    if (!request.user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const sessionId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = getChefSessionContext(request.user.id, sessionId);
+    if (!result.ok) {
+      response.status(409).json({ code: result.code, message: result.message });
       return;
     }
 
