@@ -5,6 +5,7 @@ import { FeedbackController, RecommendationController } from './feedback.control
 const feedbackRouter = Router();
 feedbackRouter.use(requireAuth);
 feedbackRouter.post('/', FeedbackController.create);
+feedbackRouter.get('/', FeedbackController.list);
 
 const recommendationsRouter = Router();
 recommendationsRouter.use(requireAuth);
