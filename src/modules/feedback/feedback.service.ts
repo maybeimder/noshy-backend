@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { getActiveChefSession } from '../chef-sessions/chef-session.service';
 import type { FeedbackEntry, FeedbackInput } from './feedback.model';
 
 const feedbackByUserId = new Map<string, FeedbackEntry[]>();
@@ -12,9 +13,18 @@ export function createFeedback(userId: string, input: FeedbackInput, idempotency
     }
   }
 
+  if (!getActiveChefSession(userId, input.sessionId)) {
+    return {
+      ok: false,
+      code: 'CHEF_SESSION_NOT_ACTIVE',
+      message: 'La sesión del agente no está activa.'
+    } as const;
+  }
+
   const entry: FeedbackEntry = {
     id: randomUUID(),
     userId,
+    sessionId: input.sessionId,
     targetType: input.targetType,
     targetId: input.targetId.trim(),
     targetName: input.targetName.trim(),

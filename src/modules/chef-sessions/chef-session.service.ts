@@ -5,6 +5,11 @@ import { InMemoryPreferencesRepository, type PreferencesRepository } from './pre
 const sessions = new Map<string, ChefSession>();
 const preferencesRepository: PreferencesRepository = new InMemoryPreferencesRepository();
 
+export function getActiveChefSession(userId: string, sessionId: string) {
+  const session = sessions.get(sessionId);
+  return session?.userId === userId && session.status === 'active' ? session : null;
+}
+
 export function openChefSession(userId: string) {
   const preferences = preferencesRepository.getByUserId(userId);
   const session: ChefSession = {

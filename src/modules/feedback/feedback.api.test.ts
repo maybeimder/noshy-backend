@@ -18,6 +18,16 @@ const registerUser = async (serverPort: number, email: string, name: string) => 
   return (await response.json()).token as string;
 };
 
+const openChefSession = async (serverPort: number, token: string) => {
+  const response = await fetch(`http://127.0.0.1:${serverPort}/chef/sessions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  assert.equal(response.status, 201);
+  return (await response.json()).id as string;
+};
+
 test('POST /feedback stores a prepared event and GET /recommendations returns positive interactions', async () => {
   const server = createServer().listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -25,6 +35,7 @@ test('POST /feedback stores a prepared event and GET /recommendations returns po
 
   try {
     const token = await registerUser(address.port, 'feedback@noshy.com', 'Feedback User');
+    const sessionId = await openChefSession(address.port, token);
 
     const feedbackResponse = await fetch(`http://127.0.0.1:${address.port}/feedback`, {
       method: 'POST',
@@ -33,6 +44,7 @@ test('POST /feedback stores a prepared event and GET /recommendations returns po
         Authorization: `Bearer ${token}`
       },
       body: JSON.stringify({
+        sessionId,
         targetType: 'recipe',
         targetId: 'recipe-123',
         targetName: 'Ensalada de quinoa',
@@ -55,6 +67,31 @@ test('POST /feedback stores a prepared event and GET /recommendations returns po
     assert.ok(Array.isArray(recommendations));
     assert.ok(recommendations.length > 0);
     assert.equal(recommendations[0].targetName, 'Ensalada de quinoa');
+
+    const closeResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${sessionId}/close`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'manual', preferencesMarkdown: '# Preferencias\n' })
+    });
+
+    assert.equal(closeResponse.status, 200);
+
+    const inactiveFeedbackResponse = await fetch(`http://127.0.0.1:${address.port}/feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        sessionId,
+        targetType: 'recipe',
+        targetId: 'recipe-789',
+        targetName: 'Receta posterior',
+        eventType: 'prepared'
+      })
+    });
+
+    assert.equal(inactiveFeedbackResponse.status, 409);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -69,7 +106,9 @@ test('POST /feedback stores behavior events idempotently and GET /feedback retur
 
   try {
     const token = await registerUser(address.port, 'events@noshy.com', 'Events User');
+    const sessionId = await openChefSession(address.port, token);
     const event = {
+      sessionId,
       targetType: 'recipe',
       targetId: 'recipe-456',
       targetName: 'Pasta de verduras',
