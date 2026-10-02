@@ -65,6 +65,33 @@ export function getPlanById(userId: string, planId: string) {
   return (plansByUserId.get(userId) ?? []).find((plan) => plan.id === planId) ?? null;
 }
 
+export function completePlanMeal(userId: string, planId: string, mealId: string) {
+  const plan = getPlanById(userId, planId);
+  if (!plan) {
+    return { ok: false, code: 'PLAN_NOT_FOUND', message: 'No existe el plan solicitado.' } as const;
+  }
+
+  if (plan.status !== 'selected') {
+    return { ok: false, code: 'PLAN_NOT_SELECTED', message: 'Debes seleccionar el plan antes de completar una comida.' } as const;
+  }
+
+  const meal = plan.meals.find((entry) => entry.id === mealId);
+  if (!meal) {
+    return { ok: false, code: 'MEAL_NOT_FOUND', message: 'No existe la comida solicitada.' } as const;
+  }
+
+  if (meal.completedAt) {
+    return { ok: false, code: 'MEAL_ALREADY_COMPLETED', message: 'La comida ya fue completada.' } as const;
+  }
+
+  return { ok: true, data: { plan, meal } } as const;
+}
+
+export function markPlanMealCompleted(meal: Plan['meals'][number]) {
+  meal.completedAt = new Date().toISOString();
+  return meal;
+}
+
 export function selectPlan(userId: string, planId: string) {
   const plan = (plansByUserId.get(userId) ?? []).find((entry) => entry.id === planId);
   if (!plan) {

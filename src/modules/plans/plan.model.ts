@@ -6,6 +6,7 @@ export type PlanMeal = {
   recipeId: string;
   ingredients: ShoppingItem[];
   servings: number;
+  completedAt?: string;
 };
 
 export type PlanStatus = 'candidate' | 'selected' | 'discarded';
