@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { listRecipes } from '../../recipes/recipe.service';
-import { createShoppingList, generatePlan, listPlans } from '../plan.service';
+import { createShoppingList, generatePlanAlternatives, listPlanGeneration, listPlans, selectPlan } from '../plan.service';
 import { planInputSchema, shoppingListInputSchema } from './plan.dto';
 
 export class PlanController {
@@ -30,8 +30,8 @@ export class PlanController {
       return;
     }
 
-    const plan = generatePlan(user.id, parsed.data, recipes);
-    response.status(201).json(plan);
+    const generation = generatePlanAlternatives(user.id, parsed.data, recipes);
+    response.status(201).json(generation);
   };
 
   static list = (request: Request, response: Response) => {
@@ -42,6 +42,34 @@ export class PlanController {
     }
 
     response.status(200).json(listPlans(user.id));
+  };
+
+  static listGeneration = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const generationId = Array.isArray(request.params.generationId) ? request.params.generationId[0] : request.params.generationId;
+    response.status(200).json({ generationId, plans: listPlanGeneration(user.id, generationId) });
+  };
+
+  static select = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const planId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = selectPlan(user.id, planId);
+    if (!result.ok) {
+      response.status(result.code === 'PLAN_NOT_FOUND' ? 404 : 409).json({ code: result.code, message: result.message });
+      return;
+    }
+
+    response.status(200).json(result.data);
   };
 }
 
@@ -66,7 +94,7 @@ export class ShoppingListController {
     const result = createShoppingList(user.id, parsed.data.planId);
 
     if (!result.ok) {
-      response.status(404).json({ code: result.code, message: result.message });
+      response.status(result.code === 'PLAN_NOT_FOUND' ? 404 : 409).json({ code: result.code, message: result.message });
       return;
     }
 
