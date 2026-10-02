@@ -61,3 +61,60 @@ test('POST /feedback stores a rating and GET /recommendations returns the most l
     });
   }
 });
+
+test('POST /feedback stores behavior events idempotently and GET /feedback returns the history', async () => {
+  const server = createServer().listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+
+  try {
+    const token = await registerUser(address.port, 'events@noshy.com', 'Events User');
+    const event = {
+      targetType: 'recipe',
+      targetId: 'recipe-456',
+      targetName: 'Pasta de verduras',
+      eventType: 'prepared',
+      note: 'La preparé y funcionó bien'
+    };
+
+    const firstResponse = await fetch(`http://127.0.0.1:${address.port}/feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': 'event-prepared-recipe-456'
+      },
+      body: JSON.stringify(event)
+    });
+
+    assert.equal(firstResponse.status, 201);
+    const firstEvent = await firstResponse.json();
+
+    const retryResponse = await fetch(`http://127.0.0.1:${address.port}/feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        'Idempotency-Key': 'event-prepared-recipe-456'
+      },
+      body: JSON.stringify(event)
+    });
+
+    assert.equal(retryResponse.status, 200);
+    const retryEvent = await retryResponse.json();
+    assert.equal(retryEvent.id, firstEvent.id);
+
+    const historyResponse = await fetch(`http://127.0.0.1:${address.port}/feedback`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    assert.equal(historyResponse.status, 200);
+    const history = await historyResponse.json();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].eventType, 'prepared');
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { createFeedback, listRecommendations } from '../feedback.service';
+import { createFeedback, listFeedback, listRecommendations } from '../feedback.service';
 import { feedbackInputSchema } from './feedback.dto';
 
 export class FeedbackController {
@@ -20,8 +20,18 @@ export class FeedbackController {
       return;
     }
 
-    const feedback = createFeedback(user.id, parsed.data);
-    response.status(201).json(feedback);
+    const result = createFeedback(user.id, parsed.data, request.header('Idempotency-Key'));
+    response.status(result.duplicate ? 200 : 201).json(result.entry);
+  };
+
+  static list = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    response.status(200).json(listFeedback(user.id));
   };
 }
 
