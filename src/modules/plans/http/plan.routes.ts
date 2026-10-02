@@ -11,6 +11,7 @@ shoppingListRouter.use(requireAuth);
 planRouter.post('/generate', PlanController.generate);
 planRouter.get('/', PlanController.list);
 planRouter.get('/generations/:generationId', PlanController.listGeneration);
+planRouter.get('/:planId/inventory-coverage', PlanController.inventoryCoverage);
 planRouter.post('/:id/select', PlanController.select);
 planRouter.post('/shopping-list', ShoppingListController.create);
 shoppingListRouter.post('/', ShoppingListController.create);

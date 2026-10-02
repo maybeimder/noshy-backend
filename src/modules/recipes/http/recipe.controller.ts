@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express';
+import { adaptRecipe } from '../recipe-adaptation.service';
 import { createRecipe, listCommunityRecipes, listRecipes, publishRecipe } from '../recipe.service';
+import { recipeAdaptationSchema } from './recipe-adaptation.dto';
 import { recipeSchema } from './recipe.dto';
 
 export class RecipeController {
@@ -53,5 +55,28 @@ export class RecipeController {
 
   static communityList = (_request: Request, response: Response) => {
     response.status(200).json(listCommunityRecipes());
+  };
+
+  static adapt = (request: Request, response: Response) => {
+    const parsed = recipeAdaptationSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
+      return;
+    }
+
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const result = adaptRecipe(user.id, parsed.data.planId, parsed.data.recipeId);
+    if (!result.ok) {
+      const status = result.code === 'PLAN_NOT_FOUND' || result.code === 'RECIPE_NOT_IN_PLAN' ? 404 : 409;
+      response.status(status).json({ code: result.code, message: result.message });
+      return;
+    }
+
+    response.status(201).json(result.data);
   };
 }
