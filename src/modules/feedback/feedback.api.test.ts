@@ -18,7 +18,7 @@ const registerUser = async (serverPort: number, email: string, name: string) => 
   return (await response.json()).token as string;
 };
 
-test('POST /feedback stores a rating and GET /recommendations returns the most liked items', async () => {
+test('POST /feedback stores a prepared event and GET /recommendations returns positive interactions', async () => {
   const server = createServer().listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
   const address = server.address() as AddressInfo;
@@ -36,7 +36,7 @@ test('POST /feedback stores a rating and GET /recommendations returns the most l
         targetType: 'recipe',
         targetId: 'recipe-123',
         targetName: 'Ensalada de quinoa',
-        rating: 5,
+        eventType: 'prepared',
         note: 'Muy fresca'
       })
     });
@@ -44,7 +44,7 @@ test('POST /feedback stores a rating and GET /recommendations returns the most l
     assert.equal(feedbackResponse.status, 201);
     const feedback = await feedbackResponse.json();
     assert.equal(feedback.targetType, 'recipe');
-    assert.equal(feedback.rating, 5);
+    assert.equal(feedback.eventType, 'prepared');
 
     const recommendationsResponse = await fetch(`http://127.0.0.1:${address.port}/recommendations`, {
       headers: { Authorization: `Bearer ${token}` }
