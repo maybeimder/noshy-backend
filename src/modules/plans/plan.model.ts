@@ -3,6 +3,9 @@ export type PlanMeal = {
   day: number;
   type: 'breakfast' | 'lunch' | 'dinner';
   title: string;
+  recipeId: string;
+  ingredients: ShoppingItem[];
+  servings: number;
 };
 
 export type Plan = {
@@ -19,6 +22,7 @@ export type PlanInput = {
   days: number;
   goals: string[];
   mealsPerDay: number;
+  recipeIds: string[];
 };
 
 export type ShoppingItem = {

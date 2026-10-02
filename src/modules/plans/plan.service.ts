@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { Recipe } from '../recipes/recipe.model';
 import type { Plan, PlanInput, ShoppingList } from './plan.model';
 
 const plansByUserId = new Map<string, Plan[]>();
@@ -6,7 +7,7 @@ const shoppingListsByUserId = new Map<string, ShoppingList[]>();
 
 const mealTypes = ['breakfast', 'lunch', 'dinner'] as const;
 
-export function generatePlan(userId: string, input: PlanInput) {
+export function generatePlan(userId: string, input: PlanInput, recipes: Recipe[]) {
   const plan: Plan = {
     id: randomUUID(),
     userId,
@@ -20,11 +21,19 @@ export function generatePlan(userId: string, input: PlanInput) {
   for (let day = 1; day <= plan.days; day += 1) {
     for (let mealIndex = 0; mealIndex < plan.mealsPerDay; mealIndex += 1) {
       const type = mealTypes[mealIndex % mealTypes.length];
+      const recipe = recipes[mealIndex % recipes.length];
       plan.meals.push({
         id: randomUUID(),
         day,
         type,
-        title: `${type[0].toUpperCase()}${type.slice(1)} for day ${day}`
+        title: recipe?.title ?? `${type[0].toUpperCase()}${type.slice(1)} for day ${day}`,
+        recipeId: recipe.id,
+        ingredients: recipe.ingredients.map((ingredient) => ({
+          name: ingredient.name,
+          quantity: ingredient.quantity,
+          unit: ingredient.unit
+        })),
+        servings: 1
       });
     }
   }
@@ -47,11 +56,24 @@ export function createShoppingList(userId: string, planId: string) {
     return { ok: false, code: 'PLAN_NOT_FOUND', message: 'No existe el plan solicitado.' } as const;
   }
 
-  const items = plan.meals.map((meal) => ({
-    name: meal.title,
-    quantity: 1,
-    unit: 'serving'
-  }));
+  const itemsByKey = new Map<string, { name: string; quantity: number; unit: string }>();
+  for (const meal of plan.meals) {
+    for (const ingredient of meal.ingredients) {
+      const key = `${ingredient.name.toLowerCase()}::${ingredient.unit.toLowerCase()}`;
+      const current = itemsByKey.get(key);
+      if (current) {
+        current.quantity += ingredient.quantity * meal.servings;
+      } else {
+        itemsByKey.set(key, {
+          name: ingredient.name,
+          quantity: ingredient.quantity * meal.servings,
+          unit: ingredient.unit
+        });
+      }
+    }
+  }
+
+  const items = [...itemsByKey.values()];
 
   const list: ShoppingList = {
     id: randomUUID(),

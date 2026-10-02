@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { listRecipes } from '../../recipes/recipe.service';
 import { createShoppingList, generatePlan, listPlans } from '../plan.service';
 import { planInputSchema, shoppingListInputSchema } from './plan.dto';
 
@@ -20,7 +21,16 @@ export class PlanController {
       return;
     }
 
-    const plan = generatePlan(user.id, parsed.data);
+    const recipes = parsed.data.recipeIds.map((recipeId) =>
+      listRecipes(user.id).find((recipe) => recipe.id === recipeId)
+    ).filter((recipe): recipe is NonNullable<typeof recipe> => recipe !== undefined);
+
+    if (recipes.length !== new Set(parsed.data.recipeIds).size) {
+      response.status(404).json({ code: 'RECIPE_NOT_FOUND', message: 'Una o más recetas no existen.' });
+      return;
+    }
+
+    const plan = generatePlan(user.id, parsed.data, recipes);
     response.status(201).json(plan);
   };
 
