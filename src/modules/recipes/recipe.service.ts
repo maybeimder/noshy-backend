@@ -29,6 +29,17 @@ export function listRecipes(userId: string) {
   return recipesByUserId.get(userId) ?? [];
 }
 
+export function getRecipeForChef(userId: string, recipeId: string) {
+  const ownRecipe = listRecipes(userId).find((recipe) => recipe.id === recipeId);
+  if (ownRecipe) {
+    return ownRecipe;
+  }
+
+  return [...recipesByUserId.values()]
+    .flat()
+    .find((recipe) => recipe.id === recipeId && recipe.isPublic) ?? null;
+}
+
 export function publishRecipe(userId: string, recipeId: string, authorName: string) {
   const recipe = (recipesByUserId.get(userId) ?? []).find((entry) => entry.id === recipeId);
 

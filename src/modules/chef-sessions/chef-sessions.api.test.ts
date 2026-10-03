@@ -190,3 +190,74 @@ test('chef agent receives context and returns an assistant message with detected
     });
   }
 });
+
+test('chef agent can use public community recipes but not private recipes from another user', async () => {
+  let receivedRecipeTitle = '';
+  const agent: ChefAgentPort = {
+    respond: async (input) => {
+      receivedRecipeTitle = input.recipe?.title ?? '';
+      return { message: 'Puedo ayudarte con esta receta.', feedback: [] };
+    }
+  };
+  const server = createServer({ chefAgent: agent }).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+
+  try {
+    const ownerToken = await registerUser(address.port, 'community-owner@noshy.com', 'Community Owner');
+    const visitorToken = await registerUser(address.port, 'community-visitor@noshy.com', 'Community Visitor');
+    const ownerHeaders = { Authorization: `Bearer ${ownerToken}` };
+    const visitorHeaders = { Authorization: `Bearer ${visitorToken}` };
+
+    const publicRecipeResponse = await fetch(`http://127.0.0.1:${address.port}/recipes`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Receta comunitaria',
+        ingredients: [{ name: 'Avena', quantity: 1, unit: 'taza' }],
+        instructions: ['Cocinar la avena']
+      })
+    });
+    const publicRecipe = await publicRecipeResponse.json();
+    await fetch(`http://127.0.0.1:${address.port}/recipes/${publicRecipe.id}/publish`, {
+      method: 'POST',
+      headers: ownerHeaders
+    });
+
+    const privateRecipeResponse = await fetch(`http://127.0.0.1:${address.port}/recipes`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Receta privada',
+        ingredients: [{ name: 'Cacao', quantity: 1, unit: 'cucharada' }],
+        instructions: ['Mezclar']
+      })
+    });
+    const privateRecipe = await privateRecipeResponse.json();
+
+    const sessionResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions`, {
+      method: 'POST',
+      headers: visitorHeaders
+    });
+    const session = await sessionResponse.json();
+
+    const publicResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${session.id}/respond`, {
+      method: 'POST',
+      headers: { ...visitorHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '¿Cómo preparo esto?', recipeId: publicRecipe.id })
+    });
+    assert.equal(publicResponse.status, 200);
+    assert.equal(receivedRecipeTitle, 'Receta comunitaria');
+
+    const privateResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${session.id}/respond`, {
+      method: 'POST',
+      headers: { ...visitorHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '¿Cómo preparo esto?', recipeId: privateRecipe.id })
+    });
+    assert.equal(privateResponse.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
