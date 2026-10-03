@@ -24,11 +24,11 @@ El estado actual usa adaptadores en memoria para poder validar los contratos. La
 
 Variables opcionales:
 
-| Variable | Valor por defecto | Descripción |
-| --- | --- | --- |
-| `PORT` | `3000` | Puerto HTTP entre 1 y 65535 |
-| `CORS_ORIGIN` | `*` | Origen permitido por CORS |
-| `JSON_BODY_LIMIT` | `1mb` | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb` |
+| Variable          | Valor por defecto | Descripción                                         |
+| ----------------- | ----------------- | --------------------------------------------------- |
+| `PORT`            | `3000`            | Puerto HTTP entre 1 y 65535                         |
+| `CORS_ORIGIN`     | `*`               | Origen permitido por CORS                           |
+| `JSON_BODY_LIMIT` | `1mb`             | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb` |
 
 La configuración se valida al iniciar mediante `src/infrastructure/config/env.ts`.
 
@@ -44,25 +44,25 @@ El MVP actual usa tokens temporales en memoria. No es un mecanismo de producció
 
 ## Contratos principales
 
-| Área | Operaciones |
-| --- | --- |
-| Auth | `POST /auth/register`, `POST /auth/login`, `GET /auth/me` |
-| Plan nutricional | `POST /plans`, `GET /plans`, `GET /plans/active`, `PUT /plans/active` |
-| Inventario | `POST/GET /inventory/items`, `PATCH/DELETE /inventory/items/:id` |
-| Recetas propias | `POST/GET /recipes`, `PATCH/DELETE /recipes/:id`, publicar y retirar publicación |
-| Comunidad | `GET /community/recipes`, `GET /community/recipes/:id` |
-| Agente chef | sesiones, contexto, mensajes y `POST /chef/sessions/:id/respond` |
-| Feedback | `POST/GET /feedback`, `GET /recommendations` |
-| Compras | `POST /shopping-list` desde recetas guardadas o recetas inline del agente |
+| Área             | Operaciones                                                                      |
+| ---------------- | -------------------------------------------------------------------------------- |
+| Auth             | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`                        |
+| Plan nutricional | `POST /plans`, `GET /plans`, `GET /plans/active`, `PUT /plans/active`            |
+| Inventario       | `POST/GET /inventory/items`, `PATCH/DELETE /inventory/items/:id`                 |
+| Recetas propias  | `POST/GET /recipes`, `PATCH/DELETE /recipes/:id`, publicar y retirar publicación |
+| Comunidad        | `GET /community/recipes`, `GET /community/recipes/:id`                           |
+| Agente chef      | sesiones, contexto, mensajes y `POST /chef/sessions/:id/respond`                 |
+| Feedback         | `POST/GET /feedback`, `GET /recommendations`                                     |
+| Compras          | `POST /shopping-list` desde recetas guardadas o recetas inline del agente        |
 
 Los errores de rutas desconocidas y JSON inválido usan el formato:
 
 ```json
 {
-	"error": {
-		"code": "ROUTE_NOT_FOUND",
-		"message": "Ruta no encontrada."
-	}
+  "error": {
+    "code": "ROUTE_NOT_FOUND",
+    "message": "Ruta no encontrada."
+  }
 }
 ```
 
