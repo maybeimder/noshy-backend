@@ -1,39 +1,26 @@
-import { getPlanInventoryCoverage } from '../inventory/inventory.service';
-import { getPlanById } from '../plans/plan.service';
+import { listInventoryItems } from '../inventory/inventory.service';
 import { listRecipes } from './recipe.service';
 
-export function adaptRecipe(userId: string, planId: string, recipeId: string) {
-  const plan = getPlanById(userId, planId);
-  if (!plan) {
-    return { ok: false, code: 'PLAN_NOT_FOUND', message: 'No existe el plan solicitado.' } as const;
-  }
+const normalize = (value: string) => value.trim().toLowerCase();
 
-  if (plan.status !== 'selected') {
-    return { ok: false, code: 'PLAN_NOT_SELECTED', message: 'Debes seleccionar el plan antes de adaptar una receta.' } as const;
-  }
-
+export function adaptRecipe(userId: string, recipeId: string) {
   const recipe = listRecipes(userId).find((entry) => entry.id === recipeId);
-  const recipeIsInPlan = plan.meals.some((meal) => meal.recipeId === recipeId);
-  if (!recipe || !recipeIsInPlan) {
-    return { ok: false, code: 'RECIPE_NOT_IN_PLAN', message: 'La receta no pertenece al plan seleccionado.' } as const;
+  if (!recipe) {
+    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
   }
 
-  const coverage = getPlanInventoryCoverage(userId, planId);
-  if (!coverage.ok) {
-    return coverage;
+  const availableByKey = new Map<string, number>();
+  for (const item of listInventoryItems(userId)) {
+    const key = `${normalize(item.name)}::${normalize(item.unit)}`;
+    availableByKey.set(key, (availableByKey.get(key) ?? 0) + item.quantity);
   }
 
-  const coverageByKey = new Map(
-    coverage.data.items.map((item) => [`${item.name.toLowerCase()}::${item.unit.toLowerCase()}`, item])
+  const ingredients = recipe.ingredients.filter((ingredient) =>
+    (availableByKey.get(`${normalize(ingredient.name)}::${normalize(ingredient.unit)}`) ?? 0) >= ingredient.quantity
   );
-  const ingredients = recipe.ingredients.filter((ingredient) => {
-    const item = coverageByKey.get(`${ingredient.name.toLowerCase()}::${ingredient.unit.toLowerCase()}`);
-    return item?.covered === true;
-  });
   const missingIngredients = recipe.ingredients
     .map((ingredient) => {
-      const item = coverageByKey.get(`${ingredient.name.toLowerCase()}::${ingredient.unit.toLowerCase()}`);
-      const availableQuantity = item?.availableQuantity ?? 0;
+      const availableQuantity = availableByKey.get(`${normalize(ingredient.name)}::${normalize(ingredient.unit)}`) ?? 0;
       return {
         name: ingredient.name,
         quantity: Math.max(ingredient.quantity - availableQuantity, 0),
@@ -45,7 +32,6 @@ export function adaptRecipe(userId: string, planId: string, recipeId: string) {
   return {
     ok: true,
     data: {
-      planId,
       recipeId,
       title: `${recipe.title} adaptada`,
       ingredients,
