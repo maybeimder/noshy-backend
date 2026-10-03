@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express';
 import { adaptRecipe } from '../recipe-adaptation.service';
-import { createRecipe, getCommunityRecipe, listCommunityRecipes, listRecipes, publishRecipe, unpublishRecipe } from '../recipe.service';
+import { createRecipe, deleteRecipe, getCommunityRecipe, listCommunityRecipes, listRecipes, publishRecipe, unpublishRecipe, updateRecipe } from '../recipe.service';
 import { recipeAdaptationSchema } from './recipe-adaptation.dto';
-import { recipeSchema } from './recipe.dto';
+import { recipeSchema, recipeUpdateSchema } from './recipe.dto';
 
 export class RecipeController {
   static create = (request: Request, response: Response) => {
@@ -34,6 +34,44 @@ export class RecipeController {
     }
 
     response.status(200).json(listRecipes(user.id));
+  };
+
+  static update = (request: Request, response: Response) => {
+    const parsed = recipeUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
+      return;
+    }
+
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = updateRecipe(user.id, recipeId, parsed.data);
+    if (!result.ok) {
+      response.status(404).json({ code: result.code, message: result.message });
+      return;
+    }
+    response.status(200).json(result.data);
+  };
+
+  static delete = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = deleteRecipe(user.id, recipeId);
+    if (!result.ok) {
+      response.status(404).json({ code: result.code, message: result.message });
+      return;
+    }
+    response.status(204).send();
   };
 
   static publish = (request: Request, response: Response) => {

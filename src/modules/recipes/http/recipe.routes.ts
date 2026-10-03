@@ -7,6 +7,8 @@ recipeRouter.use(requireAuth);
 recipeRouter.post('/', RecipeController.create);
 recipeRouter.get('/', RecipeController.list);
 recipeRouter.post('/adapt', RecipeController.adapt);
+recipeRouter.patch('/:id', RecipeController.update);
+recipeRouter.delete('/:id', RecipeController.delete);
 recipeRouter.post('/:id/publish', RecipeController.publish);
 recipeRouter.post('/:id/unpublish', RecipeController.unpublish);
 
