@@ -12,3 +12,5 @@ export type InventoryItemInput = {
   quantity: number;
   unit: string;
 };
+
+export type InventoryItemUpdate = Partial<InventoryItemInput>;

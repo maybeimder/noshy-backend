@@ -96,3 +96,51 @@ test('POST /recipes creates a recipe and GET returns it', async () => {
     });
   }
 });
+
+test('PATCH and DELETE /inventory/items/:id manage only the owner inventory', async () => {
+  const server = createServer().listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+
+  try {
+    const ownerToken = await registerUser(address.port, 'inventory-owner@noshy.com', 'Inventory Owner');
+    const otherToken = await registerUser(address.port, 'inventory-other@noshy.com', 'Other User');
+    const ownerHeaders = { Authorization: `Bearer ${ownerToken}` };
+
+    const createResponse = await fetch(`http://127.0.0.1:${address.port}/inventory/items`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Arroz', quantity: 2, unit: 'tazas' })
+    });
+    const item = await createResponse.json();
+
+    const unauthorizedUpdate = await fetch(`http://127.0.0.1:${address.port}/inventory/items/${item.id}`, {
+      method: 'PATCH',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ quantity: 5 })
+    });
+    assert.equal(unauthorizedUpdate.status, 200);
+    assert.equal((await unauthorizedUpdate.json()).quantity, 5);
+
+    const otherDelete = await fetch(`http://127.0.0.1:${address.port}/inventory/items/${item.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${otherToken}` }
+    });
+    assert.equal(otherDelete.status, 404);
+
+    const ownerDelete = await fetch(`http://127.0.0.1:${address.port}/inventory/items/${item.id}`, {
+      method: 'DELETE',
+      headers: ownerHeaders
+    });
+    assert.equal(ownerDelete.status, 204);
+
+    const listingResponse = await fetch(`http://127.0.0.1:${address.port}/inventory/items`, {
+      headers: ownerHeaders
+    });
+    assert.deepEqual(await listingResponse.json(), []);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
