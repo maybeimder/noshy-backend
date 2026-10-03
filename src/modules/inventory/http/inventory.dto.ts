@@ -5,3 +5,8 @@ export const inventoryItemSchema = z.object({
   quantity: z.number().positive('La cantidad debe ser mayor que cero.'),
   unit: z.string().trim().min(1, 'La unidad es obligatoria.')
 });
+
+export const inventoryItemUpdateSchema = inventoryItemSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  'Debe enviar al menos un campo para actualizar.'
+);
