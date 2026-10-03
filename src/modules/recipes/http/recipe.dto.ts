@@ -11,3 +11,8 @@ export const recipeSchema = z.object({
   ingredients: z.array(recipeIngredientSchema).min(1, 'Debe haber al menos un ingrediente.'),
   instructions: z.array(z.string().trim().min(1, 'Cada paso debe tener texto.')).min(1, 'Debe haber al menos un paso.')
 });
+
+export const recipeUpdateSchema = recipeSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  'Debe enviar al menos un campo para actualizar.'
+);

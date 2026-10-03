@@ -21,3 +21,5 @@ export type RecipeInput = {
   ingredients: RecipeIngredient[];
   instructions: string[];
 };
+
+export type RecipeUpdate = Partial<RecipeInput>;

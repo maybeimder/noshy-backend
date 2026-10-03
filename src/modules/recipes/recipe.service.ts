@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Recipe, RecipeInput } from './recipe.model';
+import type { Recipe, RecipeInput, RecipeUpdate } from './recipe.model';
 
 const recipesByUserId = new Map<string, Recipe[]>();
 
@@ -27,6 +27,37 @@ export function createRecipe(userId: string, input: RecipeInput) {
 
 export function listRecipes(userId: string) {
   return recipesByUserId.get(userId) ?? [];
+}
+
+export function updateRecipe(userId: string, recipeId: string, input: RecipeUpdate) {
+  const recipe = listRecipes(userId).find((entry) => entry.id === recipeId);
+  if (!recipe) {
+    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
+  }
+
+  if (input.title !== undefined) recipe.title = input.title.trim();
+  if (input.ingredients !== undefined) {
+    recipe.ingredients = input.ingredients.map((ingredient) => ({
+      name: ingredient.name.trim(),
+      quantity: Number(ingredient.quantity),
+      unit: ingredient.unit.trim()
+    }));
+  }
+  if (input.instructions !== undefined) {
+    recipe.instructions = input.instructions.map((instruction) => instruction.trim()).filter(Boolean);
+  }
+  return { ok: true, data: recipe } as const;
+}
+
+export function deleteRecipe(userId: string, recipeId: string) {
+  const recipes = listRecipes(userId);
+  const index = recipes.findIndex((entry) => entry.id === recipeId);
+  if (index === -1) {
+    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
+  }
+
+  recipes.splice(index, 1);
+  return { ok: true } as const;
 }
 
 export function getRecipeForChef(userId: string, recipeId: string) {
