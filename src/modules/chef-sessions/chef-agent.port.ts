@@ -1,11 +1,13 @@
 import type { FeedbackEventType, FeedbackTargetType } from '../feedback/feedback.model';
 import type { ChefSessionMessage } from './chef-session.model';
+import type { NutritionPlan } from '../plans/plan.model';
 
 export interface ChefAgentContext {
   sessionId: string;
   userId: string;
   preferencesMarkdown: string;
   preferencesVersion: number;
+  nutritionPlan?: NutritionPlan;
   messages: ChefSessionMessage[];
   message: string;
 }

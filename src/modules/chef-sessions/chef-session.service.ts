@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { getActiveNutritionPlan } from '../plans/plan.service';
 import type { ChefSession, ChefSessionMessage, CloseChefSessionInput } from './chef-session.model';
 import { InMemoryPreferencesRepository, type PreferencesRepository } from './preferences.repository';
 
@@ -70,6 +71,7 @@ export function getChefSessionContext(userId: string, sessionId: string) {
       userId: session.userId,
       preferencesMarkdown: session.preferencesMarkdown,
       preferencesVersion: session.preferencesVersion,
+      nutritionPlan: getActiveNutritionPlan(userId) ?? undefined,
       messages: messagesBySessionId.get(sessionId) ?? []
     }
   } as const;
