@@ -6,5 +6,6 @@ export const closeChefSessionSchema = z.object({
 });
 
 export const chefSessionMessageSchema = z.object({
-  content: z.string().trim().min(1, 'El mensaje es requerido.').max(10_000)
+  content: z.string().trim().min(1, 'El mensaje es requerido.').max(10_000),
+  recipeId: z.string().min(1).optional()
 });

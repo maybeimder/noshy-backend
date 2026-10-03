@@ -117,7 +117,11 @@ test('chef sessions load preferences, version updates on close, and reject stale
 
 test('chef agent receives context and returns an assistant message with detected feedback', async () => {
   const agent: ChefAgentPort = {
-    respond: async (input) => ({
+    respond: async (input) => {
+      assert.equal(input.recipe?.title, 'Sopa de verduras');
+      assert.equal(input.inventory[0].name, 'Zanahoria');
+      assert.equal(input.nutritionPlan?.objective, 'gain_muscle');
+      return {
       message: `Recibí: ${input.message}`,
       feedback: [{
         targetType: 'recipe',
@@ -126,7 +130,8 @@ test('chef agent receives context and returns an assistant message with detected
         eventType: 'prepared',
         note: 'Detectado por el agente'
       }]
-    })
+      };
+    }
   };
   const server = createServer({ chefAgent: agent }).listen(0);
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -135,6 +140,26 @@ test('chef agent receives context and returns an assistant message with detected
   try {
     const token = await registerUser(address.port, 'agent@noshy.com', 'Agent User');
     const headers = { Authorization: `Bearer ${token}` };
+    const recipeResponse = await fetch(`http://127.0.0.1:${address.port}/recipes`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Sopa de verduras',
+        ingredients: [{ name: 'Zanahoria', quantity: 2, unit: 'unidades' }],
+        instructions: ['Cocinar la sopa']
+      })
+    });
+    const recipe = await recipeResponse.json();
+    await fetch(`http://127.0.0.1:${address.port}/inventory/items`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Zanahoria', quantity: 2, unit: 'unidades' })
+    });
+    await fetch(`http://127.0.0.1:${address.port}/plans`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objective: 'gain_muscle', targets: { proteinGrams: 160 } })
+    });
     const sessionResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions`, {
       method: 'POST',
       headers
@@ -144,7 +169,7 @@ test('chef agent receives context and returns an assistant message with detected
     const response = await fetch(`http://127.0.0.1:${address.port}/chef/sessions/${session.id}/respond`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: 'Ya preparé la sopa.' })
+      body: JSON.stringify({ content: 'Ya preparé la sopa.', recipeId: recipe.id })
     });
 
     assert.equal(response.status, 200);

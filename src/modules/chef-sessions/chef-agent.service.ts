@@ -1,4 +1,5 @@
 import { createFeedback } from '../feedback/feedback.service';
+import { listRecipes } from '../recipes/recipe.service';
 import type { ChefAgentPort } from './chef-agent.port';
 import {
   addChefAssistantMessage,
@@ -10,8 +11,14 @@ export async function respondWithChefAgent(
   userId: string,
   sessionId: string,
   content: string,
-  agent: ChefAgentPort
+  agent: ChefAgentPort,
+  recipeId?: string
 ) {
+  const recipe = recipeId ? listRecipes(userId).find((entry) => entry.id === recipeId) : undefined;
+  if (recipeId && !recipe) {
+    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
+  }
+
   const userMessage = addChefSessionMessage(userId, sessionId, content);
   if (!userMessage.ok) {
     return userMessage;
@@ -24,7 +31,7 @@ export async function respondWithChefAgent(
 
   let agentResponse;
   try {
-    agentResponse = await agent.respond({ ...context.data, message: content });
+    agentResponse = await agent.respond({ ...context.data, message: content, recipe });
   } catch {
     return {
       ok: false,

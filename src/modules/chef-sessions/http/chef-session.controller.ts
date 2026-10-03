@@ -94,9 +94,9 @@ export class ChefSessionController {
     }
 
     const sessionId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = await respondWithChefAgent(request.user.id, sessionId, parsed.data.content, agent);
+    const result = await respondWithChefAgent(request.user.id, sessionId, parsed.data.content, agent, parsed.data.recipeId);
     if (!result.ok) {
-      const status = result.code === 'CHEF_AGENT_UNAVAILABLE' ? 503 : result.code === 'FEEDBACK_NOT_RECORDED' ? 502 : 409;
+      const status = result.code === 'CHEF_AGENT_UNAVAILABLE' ? 503 : result.code === 'FEEDBACK_NOT_RECORDED' ? 502 : result.code === 'RECIPE_NOT_FOUND' ? 404 : 409;
       response.status(status).json({ code: result.code, message: result.message });
       return;
     }
