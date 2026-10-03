@@ -2,10 +2,62 @@ import type { Request, Response } from 'express';
 import { getPlanInventoryCoverage } from '../../inventory/inventory.service';
 import { executePlanMeal } from '../meal-execution.service';
 import { listRecipes } from '../../recipes/recipe.service';
-import { createShoppingList, generatePlanAlternatives, listPlanGeneration, listPlans, selectPlan } from '../plan.service';
-import { planInputSchema, shoppingListInputSchema } from './plan.dto';
+import { createNutritionPlan, createShoppingList, generatePlanAlternatives, getActiveNutritionPlan, listNutritionPlans, listPlanGeneration, listPlans, selectPlan, updateActiveNutritionPlan } from '../plan.service';
+import { nutritionPlanInputSchema, planInputSchema, shoppingListInputSchema } from './plan.dto';
 
 export class PlanController {
+  static createNutrition = (request: Request, response: Response) => {
+    const parsed = nutritionPlanInputSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
+      return;
+    }
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+    response.status(201).json(createNutritionPlan(user.id, parsed.data));
+  };
+
+  static listNutrition = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+    response.status(200).json(listNutritionPlans(user.id));
+  };
+
+  static activeNutrition = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+    const plan = getActiveNutritionPlan(user.id);
+    response.status(200).json(plan);
+  };
+
+  static updateNutrition = (request: Request, response: Response) => {
+    const parsed = nutritionPlanInputSchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
+      return;
+    }
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+    const result = updateActiveNutritionPlan(user.id, parsed.data);
+    if (!result.ok) {
+      response.status(404).json({ code: result.code, message: result.message });
+      return;
+    }
+    response.status(200).json(result.data);
+  };
+
   static generate = (request: Request, response: Response) => {
     const parsed = planInputSchema.safeParse(request.body);
 

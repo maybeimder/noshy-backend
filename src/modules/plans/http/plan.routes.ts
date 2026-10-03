@@ -8,6 +8,10 @@ const shoppingListRouter = Router();
 planRouter.use(requireAuth);
 shoppingListRouter.use(requireAuth);
 
+planRouter.post('/', PlanController.createNutrition);
+planRouter.get('/active', PlanController.activeNutrition);
+planRouter.put('/active', PlanController.updateNutrition);
+planRouter.get('/nutrition', PlanController.listNutrition);
 planRouter.post('/generate', PlanController.generate);
 planRouter.get('/', PlanController.list);
 planRouter.get('/generations/:generationId', PlanController.listGeneration);

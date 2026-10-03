@@ -24,6 +24,17 @@ test('chef sessions load preferences, version updates on close, and reject stale
     const token = await registerUser(address.port, 'chef@noshy.com', 'Chef User');
     const headers = { Authorization: `Bearer ${token}` };
 
+    const planResponse = await fetch(`http://127.0.0.1:${address.port}/plans`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        objective: 'burn_fat',
+        targets: { calories: 1800, proteinGrams: 140 },
+        restrictions: ['sin gluten']
+      })
+    });
+    assert.equal(planResponse.status, 201);
+
     const firstOpenResponse = await fetch(`http://127.0.0.1:${address.port}/chef/sessions`, {
       method: 'POST',
       headers
@@ -52,6 +63,8 @@ test('chef sessions load preferences, version updates on close, and reject stale
     assert.equal(contextResponse.status, 200);
     const context = await contextResponse.json();
     assert.match(context.preferencesMarkdown, /Preferencias/);
+    assert.equal(context.nutritionPlan.objective, 'burn_fat');
+    assert.equal(context.nutritionPlan.targets.calories, 1800);
     assert.equal(context.messages.length, 1);
     assert.equal(context.messages[0].id, message.id);
 

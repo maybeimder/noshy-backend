@@ -250,3 +250,45 @@ test('POST /plans/:id/select selects one alternative and discards the other cand
     });
   }
 });
+
+test('POST /plans creates a nutrition plan and GET /plans/active returns it', async () => {
+  const server = createServer().listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const address = server.address() as AddressInfo;
+
+  try {
+    const token = await registerUser(address.port, 'nutrition-plan@noshy.com', 'Nutrition User');
+    const createResponse = await fetch(`http://127.0.0.1:${address.port}/plans`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        objective: 'gain_muscle',
+        targets: {
+          calories: 2400,
+          carbohydratesGrams: 280,
+          proteinGrams: 160,
+          fatGrams: 80
+        },
+        restrictions: ['sin lactosa'],
+        mealsPerDay: 4
+      })
+    });
+
+    assert.equal(createResponse.status, 201);
+    const plan = await createResponse.json();
+    assert.equal(plan.objective, 'gain_muscle');
+    assert.equal(plan.targets.proteinGrams, 160);
+
+    const activeResponse = await fetch(`http://127.0.0.1:${address.port}/plans/active`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(activeResponse.status, 200);
+    const activePlan = await activeResponse.json();
+    assert.equal(activePlan.id, plan.id);
+    assert.deepEqual(activePlan.restrictions, ['sin lactosa']);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
