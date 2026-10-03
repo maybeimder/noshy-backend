@@ -70,10 +70,9 @@ export class RecipeController {
       return;
     }
 
-    const result = adaptRecipe(user.id, parsed.data.planId, parsed.data.recipeId);
+    const result = adaptRecipe(user.id, parsed.data.recipeId);
     if (!result.ok) {
-      const status = result.code === 'PLAN_NOT_FOUND' || result.code === 'RECIPE_NOT_IN_PLAN' ? 404 : 409;
-      response.status(status).json({ code: result.code, message: result.message });
+      response.status(404).json({ code: result.code, message: result.message });
       return;
     }
 

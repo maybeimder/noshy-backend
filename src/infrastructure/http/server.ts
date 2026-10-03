@@ -27,7 +27,6 @@ export function createServer(options: { chefAgent?: ChefAgentPort } = {}) {
   app.use('/community', communityRecipesRouter);
   app.use('/recipes', recipeRouter);
   app.use('/plans', planRouter);
-  app.use('/shopping-list', (planRouter as typeof planRouter & { shoppingListRouter?: typeof planRouter }).shoppingListRouter ?? planRouter);
 
   return app;
 }
