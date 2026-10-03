@@ -1,6 +1,7 @@
 // Arma app de Express aca
 import express from 'express';
 import cors from 'cors';
+import { getEnv } from '../config/env';
 import authRouter from '../../modules/auth/http/auth.routes';
 import { createUnavailableChefAgent, type ChefAgentPort } from '../../modules/chef-sessions/chef-agent.port';
 import { createChefSessionRouter } from '../../modules/chef-sessions/http/chef-session.routes';
@@ -13,9 +14,10 @@ import shoppingListRouter from '../../modules/shopping-list/http/shopping-list.r
 import { errorMiddleware, notFoundMiddleware } from './middlewares/error.middleware';
 
 export function createServer(options: { chefAgent?: ChefAgentPort } = {}) {
+  const environment = getEnv();
   const app = express();
-  app.use(cors());
-  app.use(express.json());
+  app.use(cors({ origin: environment.corsOrigin }));
+  app.use(express.json({ limit: environment.jsonBodyLimit }));
 
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });
