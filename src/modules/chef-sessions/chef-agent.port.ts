@@ -1,6 +1,8 @@
 import type { FeedbackEventType, FeedbackTargetType } from '../feedback/feedback.model';
 import type { ChefSessionMessage } from './chef-session.model';
 import type { NutritionPlan } from '../plans/plan.model';
+import type { InventoryItem } from '../inventory/inventory.model';
+import type { Recipe } from '../recipes/recipe.model';
 
 export interface ChefAgentContext {
   sessionId: string;
@@ -8,6 +10,8 @@ export interface ChefAgentContext {
   preferencesMarkdown: string;
   preferencesVersion: number;
   nutritionPlan?: NutritionPlan;
+  recipe?: Recipe;
+  inventory: InventoryItem[];
   messages: ChefSessionMessage[];
   message: string;
 }
