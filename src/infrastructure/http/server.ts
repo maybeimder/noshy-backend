@@ -9,6 +9,7 @@ import inventoryRouter from '../../modules/inventory/http/inventory.routes';
 import planRouter from '../../modules/plans/http/plan.routes';
 import communityRecipesRouter from '../../modules/recipes/http/community-recipes.routes';
 import recipeRouter from '../../modules/recipes/http/recipe.routes';
+import shoppingListRouter from '../../modules/shopping-list/http/shopping-list.routes';
 
 export function createServer(options: { chefAgent?: ChefAgentPort } = {}) {
   const app = express();
@@ -27,6 +28,7 @@ export function createServer(options: { chefAgent?: ChefAgentPort } = {}) {
   app.use('/community', communityRecipesRouter);
   app.use('/recipes', recipeRouter);
   app.use('/plans', planRouter);
+  app.use('/shopping-list', shoppingListRouter);
 
   return app;
 }
