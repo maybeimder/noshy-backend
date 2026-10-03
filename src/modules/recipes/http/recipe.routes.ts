@@ -8,5 +8,6 @@ recipeRouter.post('/', RecipeController.create);
 recipeRouter.get('/', RecipeController.list);
 recipeRouter.post('/adapt', RecipeController.adapt);
 recipeRouter.post('/:id/publish', RecipeController.publish);
+recipeRouter.post('/:id/unpublish', RecipeController.unpublish);
 
 export default recipeRouter;

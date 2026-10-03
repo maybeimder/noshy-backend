@@ -38,7 +38,18 @@ export function publishRecipe(userId: string, recipeId: string, authorName: stri
 
   recipe.isPublic = true;
   recipe.authorName = authorName;
+  recipe.publishedAt = recipe.publishedAt ?? new Date().toISOString();
 
+  return { ok: true, data: recipe } as const;
+}
+
+export function unpublishRecipe(userId: string, recipeId: string) {
+  const recipe = (recipesByUserId.get(userId) ?? []).find((entry) => entry.id === recipeId);
+  if (!recipe) {
+    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
+  }
+
+  recipe.isPublic = false;
   return { ok: true, data: recipe } as const;
 }
 
@@ -47,4 +58,17 @@ export function listCommunityRecipes() {
     .flat()
     .filter((recipe) => recipe.isPublic)
     .map(({ userId: _userId, ...recipe }) => recipe);
+}
+
+export function getCommunityRecipe(recipeId: string) {
+  const recipe = [...recipesByUserId.values()]
+    .flat()
+    .find((entry) => entry.id === recipeId && entry.isPublic);
+
+  if (!recipe) {
+    return null;
+  }
+
+  const { userId: _userId, ...publicRecipe } = recipe;
+  return publicRecipe;
 }

@@ -46,15 +46,30 @@ test('POST /recipes/:id/publish makes a recipe available in GET /community/recip
     const published = await publishResponse.json();
     assert.equal(published.isPublic, true);
 
-    const communityResponse = await fetch(`http://127.0.0.1:${address.port}/community/recipes`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const communityResponse = await fetch(`http://127.0.0.1:${address.port}/community/recipes`);
 
     assert.equal(communityResponse.status, 200);
     const communityRecipes = await communityResponse.json();
     assert.equal(communityRecipes.length, 1);
     assert.equal(communityRecipes[0].title, 'Tacos de lentejas');
     assert.equal(communityRecipes[0].authorName, 'Community User');
+
+    const detailResponse = await fetch(`http://127.0.0.1:${address.port}/community/recipes/${recipe.id}`);
+    assert.equal(detailResponse.status, 200);
+    const detail = await detailResponse.json();
+    assert.equal(detail.id, recipe.id);
+    assert.equal(detail.instructions[0], 'Cocinar las lentejas');
+
+    const unpublishResponse = await fetch(`http://127.0.0.1:${address.port}/recipes/${recipe.id}/unpublish`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(unpublishResponse.status, 200);
+    const unpublished = await unpublishResponse.json();
+    assert.equal(unpublished.isPublic, false);
+
+    const hiddenDetailResponse = await fetch(`http://127.0.0.1:${address.port}/community/recipes/${recipe.id}`);
+    assert.equal(hiddenDetailResponse.status, 404);
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
