@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { adaptRecipe } from '../recipe-adaptation.service';
-import { createRecipe, listCommunityRecipes, listRecipes, publishRecipe } from '../recipe.service';
+import { createRecipe, getCommunityRecipe, listCommunityRecipes, listRecipes, publishRecipe, unpublishRecipe } from '../recipe.service';
 import { recipeAdaptationSchema } from './recipe-adaptation.dto';
 import { recipeSchema } from './recipe.dto';
 
@@ -53,8 +53,35 @@ export class RecipeController {
     response.status(200).json(result.data);
   };
 
+  static unpublish = (request: Request, response: Response) => {
+    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
+    if (!user) {
+      response.status(401).json({ message: 'No autorizado.' });
+      return;
+    }
+
+    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const result = unpublishRecipe(user.id, recipeId);
+    if (!result.ok) {
+      response.status(404).json({ code: result.code, message: result.message });
+      return;
+    }
+
+    response.status(200).json(result.data);
+  };
+
   static communityList = (_request: Request, response: Response) => {
     response.status(200).json(listCommunityRecipes());
+  };
+
+  static communityDetail = (request: Request, response: Response) => {
+    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
+    const recipe = getCommunityRecipe(recipeId);
+    if (!recipe) {
+      response.status(404).json({ code: 'RECIPE_NOT_FOUND', message: 'No existe la receta pública solicitada.' });
+      return;
+    }
+    response.status(200).json(recipe);
   };
 
   static adapt = (request: Request, response: Response) => {

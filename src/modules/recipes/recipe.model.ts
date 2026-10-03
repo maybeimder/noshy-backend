@@ -12,6 +12,7 @@ export type Recipe = {
   ingredients: RecipeIngredient[];
   instructions: string[];
   isPublic: boolean;
+  publishedAt?: string;
   createdAt: string;
 };
 
