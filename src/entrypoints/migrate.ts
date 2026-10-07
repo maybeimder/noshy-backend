@@ -1,9 +1,11 @@
 // pnpm db:migrate  -> aplica las migraciones pendientes en DATABASE_URL.
 import { getEnv } from '../infrastructure/config/env';
+import { loadEnvFile } from '../infrastructure/config/load-env-file';
 import { createPool } from '../infrastructure/database/db.connection';
 import { runMigrations } from '../infrastructure/database/migrations';
 
 async function main() {
+  loadEnvFile();
   const { databaseUrl } = getEnv();
   if (!databaseUrl) {
     console.error('Define DATABASE_URL para migrar (ver .env.example).');

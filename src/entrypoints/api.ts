@@ -4,6 +4,7 @@ import type { ProcessedMessageStore } from '../core/commands/command-bus';
 import type { Outbox } from '../core/events/event-store';
 import { DEFAULT_OPENROUTER_MODELS, OpenRouterChefAgent } from '../infrastructure/ai/openrouter-chef-agent';
 import { getEnv } from '../infrastructure/config/env';
+import { loadEnvFile } from '../infrastructure/config/load-env-file';
 import { createPool } from '../infrastructure/database/db.connection';
 import { runMigrations } from '../infrastructure/database/migrations';
 import { PostgresEventStore } from '../infrastructure/database/postgres-event-store';
@@ -19,6 +20,7 @@ import { configurePersistence } from '../infrastructure/persistence/persistence'
 import { configureAuthTokens } from '../modules/auth/token';
 
 async function main() {
+  if (loadEnvFile()) console.log('Variables cargadas desde .env');
   const environment = getEnv();
   const shutdown: (() => unknown)[] = [];
 

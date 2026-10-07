@@ -30,7 +30,9 @@ export type EnvironmentConfig = {
 };
 
 export function getEnv(environment: NodeJS.ProcessEnv = process.env): EnvironmentConfig {
-  const parsed = environmentSchema.safeParse(environment);
+  // `CLAVE=` vacío (típico al copiar .env.example) cuenta como no definido, no como valor inválido.
+  const defined = Object.fromEntries(Object.entries(environment).filter(([, value]) => value?.trim()));
+  const parsed = environmentSchema.safeParse(defined);
   if (!parsed.success) {
     throw new Error(`Configuración de entorno inválida: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`);
   }
