@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { InventoryItemAddedEvent, InventoryItemRemovedEvent, InventoryItemUpdatedEvent } from './events/inventory.events';
 import type { InventoryItem, InventoryItemInput, InventoryItemUpdate } from './inventory.model';
 
 const inventoryByUserId = new Map<string, InventoryItem[]>();
@@ -16,6 +18,7 @@ export function addInventoryItem(userId: string, input: InventoryItemInput) {
   const items = inventoryByUserId.get(userId) ?? [];
   items.push(item);
   inventoryByUserId.set(userId, items);
+  publishEvent(new InventoryItemAddedEvent({ userId, item }));
   return item;
 }
 
@@ -32,6 +35,7 @@ export function updateInventoryItem(userId: string, itemId: string, input: Inven
   if (input.name !== undefined) item.name = input.name.trim();
   if (input.quantity !== undefined) item.quantity = Number(input.quantity);
   if (input.unit !== undefined) item.unit = input.unit.trim();
+  publishEvent(new InventoryItemUpdatedEvent({ userId, item }));
   return { ok: true, data: item } as const;
 }
 
@@ -43,5 +47,6 @@ export function deleteInventoryItem(userId: string, itemId: string) {
   }
 
   items.splice(index, 1);
+  publishEvent(new InventoryItemRemovedEvent({ userId, itemId }));
   return { ok: true } as const;
 }

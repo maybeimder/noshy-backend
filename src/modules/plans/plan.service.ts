@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { NutritionPlanCreatedEvent, NutritionPlanUpdatedEvent } from './events/plan.events';
 import type { NutritionPlan, NutritionPlanInput } from './plan.model';
 
 const nutritionPlansByUserId = new Map<string, NutritionPlan[]>();
@@ -18,6 +20,7 @@ export function createNutritionPlan(userId: string, input: NutritionPlanInput) {
   const plans = nutritionPlansByUserId.get(userId) ?? [];
   plans.push(plan);
   nutritionPlansByUserId.set(userId, plans);
+  publishEvent(new NutritionPlanCreatedEvent({ userId, plan }));
   return plan;
 }
 
@@ -40,5 +43,6 @@ export function updateActiveNutritionPlan(userId: string, input: NutritionPlanIn
   active.restrictions = input.restrictions?.map((restriction) => restriction.trim()).filter(Boolean) ?? [];
   active.mealsPerDay = input.mealsPerDay;
   active.updatedAt = new Date().toISOString();
+  publishEvent(new NutritionPlanUpdatedEvent({ userId, plan: active }));
   return { ok: true, data: active } as const;
 }

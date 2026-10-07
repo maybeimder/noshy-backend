@@ -1,5 +1,7 @@
 import { listInventoryItems } from '../inventory/inventory.service';
 import { listRecipes } from '../recipes/recipe.service';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { ShoppingListGeneratedEvent } from './events/shopping-list.events';
 import type { ShoppingListInput } from './shopping-list.model';
 
 const normalize = (value: string) => value.trim().toLowerCase();
@@ -53,6 +55,11 @@ export function createShoppingList(userId: string, input: ShoppingListInput) {
     };
   });
 
+  const missingItems = items
+    .filter((item) => item.missingQuantity > 0)
+    .map((item) => ({ name: item.name, quantity: item.missingQuantity, unit: item.unit }));
+  publishEvent(new ShoppingListGeneratedEvent({ userId, recipeCount: recipes.length, missingItemCount: missingItems.length }));
+
   return {
     ok: true,
     data: {
@@ -61,9 +68,7 @@ export function createShoppingList(userId: string, input: ShoppingListInput) {
       availableItems: items
         .filter((item) => item.missingQuantity === 0)
         .map(({ name, quantity, unit }) => ({ name, quantity, unit })),
-      missingItems: items
-        .filter((item) => item.missingQuantity > 0)
-        .map((item) => ({ name: item.name, quantity: item.missingQuantity, unit: item.unit }))
+      missingItems
     }
   } as const;
 }
