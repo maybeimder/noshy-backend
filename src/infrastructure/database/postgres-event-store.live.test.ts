@@ -59,7 +59,7 @@ after(async () => {
 });
 
 test('migrations apply once and are idempotent', { skip }, async () => {
-  assert.deepEqual(await runMigrations(pool), ['001_event_store_and_outbox']);
+  assert.deepEqual(await runMigrations(pool), ['001_event_store_and_outbox', '002_domain_tables']);
   assert.deepEqual(await runMigrations(pool), []);
 });
 
