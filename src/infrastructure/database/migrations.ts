@@ -39,6 +39,106 @@ export const migrations: { id: string; sql: string }[] = [
         processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
     `
+  },
+  {
+    id: '002_domain_tables',
+    sql: `
+      -- Ids en TEXT: los genera la app (randomUUID) y una URL con id inválido debe dar 404, no error de tipo.
+      -- seq preserva el orden de inserción (los listados devuelven en el orden en que se crearon).
+      CREATE TABLE users (
+        id            TEXT        PRIMARY KEY,
+        name          TEXT        NOT NULL,
+        email         TEXT        NOT NULL UNIQUE,
+        password_hash TEXT        NOT NULL,
+        created_at    TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE TABLE nutrition_plans (
+        seq           BIGSERIAL,
+        id            TEXT        PRIMARY KEY,
+        user_id       TEXT        NOT NULL REFERENCES users (id),
+        objective     TEXT        NOT NULL,
+        targets       JSONB       NOT NULL,
+        restrictions  JSONB       NOT NULL,
+        meals_per_day INTEGER,
+        created_at    TIMESTAMPTZ NOT NULL,
+        updated_at    TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX nutrition_plans_user_idx ON nutrition_plans (user_id, seq);
+
+      CREATE TABLE inventory_items (
+        seq        BIGSERIAL,
+        id         TEXT             PRIMARY KEY,
+        user_id    TEXT             NOT NULL REFERENCES users (id),
+        name       TEXT             NOT NULL,
+        quantity   DOUBLE PRECISION NOT NULL,
+        unit       TEXT             NOT NULL,
+        created_at TIMESTAMPTZ      NOT NULL
+      );
+      CREATE INDEX inventory_items_user_idx ON inventory_items (user_id, seq);
+
+      CREATE TABLE recipes (
+        seq          BIGSERIAL,
+        id           TEXT        PRIMARY KEY,
+        user_id      TEXT        NOT NULL REFERENCES users (id),
+        title        TEXT        NOT NULL,
+        ingredients  JSONB       NOT NULL,
+        instructions JSONB       NOT NULL,
+        is_public    BOOLEAN     NOT NULL DEFAULT false,
+        author_name  TEXT,
+        published_at TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX recipes_user_idx ON recipes (user_id, seq);
+      CREATE INDEX recipes_public_idx ON recipes (seq) WHERE is_public;
+
+      CREATE TABLE preferences_documents (
+        user_id    TEXT        PRIMARY KEY REFERENCES users (id),
+        content    TEXT        NOT NULL,
+        version    INTEGER     NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+
+      CREATE TABLE chef_sessions (
+        id                       TEXT        PRIMARY KEY,
+        user_id                  TEXT        NOT NULL REFERENCES users (id),
+        status                   TEXT        NOT NULL CHECK (status IN ('active', 'closed', 'recovery_pending')),
+        base_preferences_version INTEGER     NOT NULL,
+        preferences_version      INTEGER     NOT NULL,
+        preferences_markdown     TEXT        NOT NULL,
+        started_at               TIMESTAMPTZ NOT NULL,
+        closed_at                TIMESTAMPTZ,
+        close_reason             TEXT
+      );
+      CREATE INDEX chef_sessions_user_idx ON chef_sessions (user_id);
+
+      CREATE TABLE chef_messages (
+        seq        BIGSERIAL,
+        id         TEXT        PRIMARY KEY,
+        session_id TEXT        NOT NULL REFERENCES chef_sessions (id),
+        user_id    TEXT        NOT NULL,
+        role       TEXT        NOT NULL CHECK (role IN ('user', 'assistant')),
+        content    TEXT        NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX chef_messages_session_idx ON chef_messages (session_id, seq);
+
+      CREATE TABLE feedback_entries (
+        seq             BIGSERIAL,
+        id              TEXT        PRIMARY KEY,
+        user_id         TEXT        NOT NULL REFERENCES users (id),
+        session_id      TEXT        NOT NULL REFERENCES chef_sessions (id),
+        target_type     TEXT        NOT NULL,
+        target_id       TEXT        NOT NULL,
+        target_name     TEXT        NOT NULL,
+        event_type      TEXT        NOT NULL,
+        note            TEXT,
+        idempotency_key TEXT,
+        created_at      TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX feedback_entries_user_idx ON feedback_entries (user_id, seq);
+      CREATE UNIQUE INDEX feedback_entries_idempotency_idx ON feedback_entries (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+    `
   }
 ];
 

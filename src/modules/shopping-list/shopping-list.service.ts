@@ -1,18 +1,19 @@
+import { db } from '../../infrastructure/persistence/persistence';
 import { listInventoryItems } from '../inventory/inventory.service';
 import { listRecipes } from '../recipes/recipe.service';
-import { publishEvent } from '../../infrastructure/event-bus/event-bus';
 import { ShoppingListGeneratedEvent } from './events/shopping-list.events';
 import type { ShoppingListInput } from './shopping-list.model';
 
 const normalize = (value: string) => value.trim().toLowerCase();
 
-export function createShoppingList(userId: string, input: ShoppingListInput) {
+export async function createShoppingList(userId: string, input: ShoppingListInput) {
   const requiredByKey = new Map<string, { name: string; unit: string; quantity: number }>();
   const recipes: { recipeId?: string; title: string; servings: number }[] = [];
+  const ownRecipes = await listRecipes(userId);
 
   for (const requestedRecipe of input.recipes) {
     const recipe = requestedRecipe.recipeId
-      ? listRecipes(userId).find((entry) => entry.id === requestedRecipe.recipeId)
+      ? ownRecipes.find((entry) => entry.id === requestedRecipe.recipeId)
       : undefined;
 
     if (requestedRecipe.recipeId && !recipe) {
@@ -39,7 +40,7 @@ export function createShoppingList(userId: string, input: ShoppingListInput) {
   }
 
   const availableByKey = new Map<string, number>();
-  for (const item of listInventoryItems(userId)) {
+  for (const item of await listInventoryItems(userId)) {
     const key = `${normalize(item.name)}::${normalize(item.unit)}`;
     availableByKey.set(key, (availableByKey.get(key) ?? 0) + item.quantity);
   }
@@ -58,7 +59,11 @@ export function createShoppingList(userId: string, input: ShoppingListInput) {
   const missingItems = items
     .filter((item) => item.missingQuantity > 0)
     .map((item) => ({ name: item.name, quantity: item.missingQuantity, unit: item.unit }));
-  publishEvent(new ShoppingListGeneratedEvent({ userId, recipeCount: recipes.length, missingItemCount: missingItems.length }));
+
+  // La lista no se guarda (se calcula); solo queda registrado el hecho de que se generó.
+  await db().uow.transaction((tx) =>
+    db().events.append([new ShoppingListGeneratedEvent({ userId, recipeCount: recipes.length, missingItemCount: missingItems.length })], tx)
+  );
 
   return {
     ok: true,

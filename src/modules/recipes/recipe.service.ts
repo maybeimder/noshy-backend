@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { db } from '../../infrastructure/persistence/persistence';
 import {
   RecipeCreatedEvent,
   RecipeDeletedEvent,
@@ -7,123 +7,116 @@ import {
   RecipeUnpublishedEvent,
   RecipeUpdatedEvent
 } from './events/recipe.events';
-import type { Recipe, RecipeInput, RecipeUpdate } from './recipe.model';
+import type { Recipe, RecipeIngredient, RecipeInput, RecipeUpdate } from './recipe.model';
 
-const recipesByUserId = new Map<string, Recipe[]>();
+const notFound = { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
 
-export function createRecipe(userId: string, input: RecipeInput) {
+const cleanIngredients = (ingredients: RecipeIngredient[]) =>
+  ingredients.map((ingredient) => ({
+    name: ingredient.name.trim(),
+    quantity: Number(ingredient.quantity),
+    unit: ingredient.unit.trim()
+  }));
+
+const cleanInstructions = (instructions: string[]) => instructions.map((instruction) => instruction.trim()).filter(Boolean);
+
+const withoutOwner = ({ userId: _userId, ...recipe }: Recipe) => recipe;
+
+export async function createRecipe(userId: string, input: RecipeInput) {
   const recipe: Recipe = {
     id: randomUUID(),
     userId,
     title: input.title.trim(),
-    ingredients: input.ingredients.map((ingredient) => ({
-      name: ingredient.name.trim(),
-      quantity: Number(ingredient.quantity),
-      unit: ingredient.unit.trim()
-    })),
-    instructions: input.instructions.map((instruction) => instruction.trim()).filter(Boolean),
+    ingredients: cleanIngredients(input.ingredients),
+    instructions: cleanInstructions(input.instructions),
     isPublic: false,
     createdAt: new Date().toISOString()
   };
 
-  const recipes = recipesByUserId.get(userId) ?? [];
-  recipes.push(recipe);
-  recipesByUserId.set(userId, recipes);
-  publishEvent(new RecipeCreatedEvent({ userId, recipe }));
-
-  return recipe;
+  return db().uow.transaction(async (tx) => {
+    await db().recipes.insert(recipe, tx);
+    await db().events.append([new RecipeCreatedEvent({ userId, recipe })], tx);
+    return recipe;
+  });
 }
 
 export function listRecipes(userId: string) {
-  return recipesByUserId.get(userId) ?? [];
+  return db().recipes.listByUser(userId);
 }
 
-export function updateRecipe(userId: string, recipeId: string, input: RecipeUpdate) {
-  const recipe = listRecipes(userId).find((entry) => entry.id === recipeId);
-  if (!recipe) {
-    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
-  }
+export async function updateRecipe(userId: string, recipeId: string, input: RecipeUpdate) {
+  return db().uow.transaction(async (tx) => {
+    const current = await db().recipes.findById(userId, recipeId, tx);
+    if (!current) {
+      return notFound;
+    }
 
-  if (input.title !== undefined) recipe.title = input.title.trim();
-  if (input.ingredients !== undefined) {
-    recipe.ingredients = input.ingredients.map((ingredient) => ({
-      name: ingredient.name.trim(),
-      quantity: Number(ingredient.quantity),
-      unit: ingredient.unit.trim()
-    }));
-  }
-  if (input.instructions !== undefined) {
-    recipe.instructions = input.instructions.map((instruction) => instruction.trim()).filter(Boolean);
-  }
-  publishEvent(new RecipeUpdatedEvent({ userId, recipe }));
-  return { ok: true, data: recipe } as const;
+    const recipe: Recipe = {
+      ...current,
+      ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+      ...(input.ingredients !== undefined ? { ingredients: cleanIngredients(input.ingredients) } : {}),
+      ...(input.instructions !== undefined ? { instructions: cleanInstructions(input.instructions) } : {})
+    };
+    await db().recipes.update(recipe, tx);
+    await db().events.append([new RecipeUpdatedEvent({ userId, recipe })], tx);
+    return { ok: true, data: recipe } as const;
+  });
 }
 
-export function deleteRecipe(userId: string, recipeId: string) {
-  const recipes = listRecipes(userId);
-  const index = recipes.findIndex((entry) => entry.id === recipeId);
-  if (index === -1) {
-    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
-  }
+export async function deleteRecipe(userId: string, recipeId: string) {
+  return db().uow.transaction(async (tx) => {
+    if (!(await db().recipes.delete(userId, recipeId, tx))) {
+      return notFound;
+    }
 
-  recipes.splice(index, 1);
-  publishEvent(new RecipeDeletedEvent({ userId, recipeId }));
-  return { ok: true } as const;
+    await db().events.append([new RecipeDeletedEvent({ userId, recipeId })], tx);
+    return { ok: true } as const;
+  });
 }
 
-export function getRecipeForChef(userId: string, recipeId: string) {
-  const ownRecipe = listRecipes(userId).find((recipe) => recipe.id === recipeId);
-  if (ownRecipe) {
-    return ownRecipe;
-  }
-
-  return [...recipesByUserId.values()]
-    .flat()
-    .find((recipe) => recipe.id === recipeId && recipe.isPublic) ?? null;
+// Propia, o pública de otro usuario.
+export async function getRecipeForChef(userId: string, recipeId: string) {
+  return (await db().recipes.findById(userId, recipeId)) ?? (await db().recipes.findPublicById(recipeId));
 }
 
-export function publishRecipe(userId: string, recipeId: string, authorName: string) {
-  const recipe = (recipesByUserId.get(userId) ?? []).find((entry) => entry.id === recipeId);
+export async function publishRecipe(userId: string, recipeId: string, authorName: string) {
+  return db().uow.transaction(async (tx) => {
+    const current = await db().recipes.findById(userId, recipeId, tx);
+    if (!current) {
+      return notFound;
+    }
 
-  if (!recipe) {
-    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
-  }
-
-  recipe.isPublic = true;
-  recipe.authorName = authorName;
-  recipe.publishedAt = recipe.publishedAt ?? new Date().toISOString();
-  publishEvent(new RecipePublishedEvent({ userId, recipe }));
-
-  return { ok: true, data: recipe } as const;
+    const recipe: Recipe = {
+      ...current,
+      isPublic: true,
+      authorName,
+      publishedAt: current.publishedAt ?? new Date().toISOString()
+    };
+    await db().recipes.update(recipe, tx);
+    await db().events.append([new RecipePublishedEvent({ userId, recipe })], tx);
+    return { ok: true, data: recipe } as const;
+  });
 }
 
-export function unpublishRecipe(userId: string, recipeId: string) {
-  const recipe = (recipesByUserId.get(userId) ?? []).find((entry) => entry.id === recipeId);
-  if (!recipe) {
-    return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
-  }
+export async function unpublishRecipe(userId: string, recipeId: string) {
+  return db().uow.transaction(async (tx) => {
+    const current = await db().recipes.findById(userId, recipeId, tx);
+    if (!current) {
+      return notFound;
+    }
 
-  recipe.isPublic = false;
-  publishEvent(new RecipeUnpublishedEvent({ userId, recipeId }));
-  return { ok: true, data: recipe } as const;
+    const recipe: Recipe = { ...current, isPublic: false };
+    await db().recipes.update(recipe, tx);
+    await db().events.append([new RecipeUnpublishedEvent({ userId, recipeId })], tx);
+    return { ok: true, data: recipe } as const;
+  });
 }
 
-export function listCommunityRecipes() {
-  return [...recipesByUserId.values()]
-    .flat()
-    .filter((recipe) => recipe.isPublic)
-    .map(({ userId: _userId, ...recipe }) => recipe);
+export async function listCommunityRecipes() {
+  return (await db().recipes.listPublic()).map(withoutOwner);
 }
 
-export function getCommunityRecipe(recipeId: string) {
-  const recipe = [...recipesByUserId.values()]
-    .flat()
-    .find((entry) => entry.id === recipeId && entry.isPublic);
-
-  if (!recipe) {
-    return null;
-  }
-
-  const { userId: _userId, ...publicRecipe } = recipe;
-  return publicRecipe;
+export async function getCommunityRecipe(recipeId: string) {
+  const recipe = await db().recipes.findPublicById(recipeId);
+  return recipe ? withoutOwner(recipe) : null;
 }

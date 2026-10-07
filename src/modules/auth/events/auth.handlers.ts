@@ -17,8 +17,8 @@ export const authHandlers = [
     name: AuthHandlers.me,
     params: ['token'],
     requiresUser: false,
-    execute: ({ params }) => {
-      const user = getUserByToken(params.token!);
+    execute: async ({ params }) => {
+      const user = await getUserByToken(params.token!);
       return user ? { id: user.id, name: user.name, email: user.email } : null;
     }
   })

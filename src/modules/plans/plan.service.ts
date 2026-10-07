@@ -1,48 +1,58 @@
 import { randomUUID } from 'node:crypto';
-import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { db } from '../../infrastructure/persistence/persistence';
 import { NutritionPlanCreatedEvent, NutritionPlanUpdatedEvent } from './events/plan.events';
 import type { NutritionPlan, NutritionPlanInput } from './plan.model';
 
-const nutritionPlansByUserId = new Map<string, NutritionPlan[]>();
+const cleanRestrictions = (input: NutritionPlanInput) =>
+  input.restrictions?.map((restriction) => restriction.trim()).filter(Boolean) ?? [];
 
-export function createNutritionPlan(userId: string, input: NutritionPlanInput) {
+export async function createNutritionPlan(userId: string, input: NutritionPlanInput) {
   const now = new Date().toISOString();
   const plan: NutritionPlan = {
     id: randomUUID(),
     userId,
     objective: input.objective,
     targets: input.targets,
-    restrictions: input.restrictions?.map((restriction) => restriction.trim()).filter(Boolean) ?? [],
+    restrictions: cleanRestrictions(input),
     mealsPerDay: input.mealsPerDay,
     createdAt: now,
     updatedAt: now
   };
-  const plans = nutritionPlansByUserId.get(userId) ?? [];
-  plans.push(plan);
-  nutritionPlansByUserId.set(userId, plans);
-  publishEvent(new NutritionPlanCreatedEvent({ userId, plan }));
-  return plan;
+
+  return db().uow.transaction(async (tx) => {
+    await db().plans.insert(plan, tx);
+    await db().events.append([new NutritionPlanCreatedEvent({ userId, plan })], tx);
+    return plan;
+  });
 }
 
 export function listNutritionPlans(userId: string) {
-  return nutritionPlansByUserId.get(userId) ?? [];
+  return db().plans.listByUser(userId);
 }
 
-export function getActiveNutritionPlan(userId: string) {
-  const plans = listNutritionPlans(userId);
+export async function getActiveNutritionPlan(userId: string) {
+  const plans = await listNutritionPlans(userId);
   return plans.length > 0 ? plans[plans.length - 1] : null;
 }
 
-export function updateActiveNutritionPlan(userId: string, input: NutritionPlanInput) {
-  const active = getActiveNutritionPlan(userId);
-  if (!active) {
-    return { ok: false, code: 'NUTRITION_PLAN_NOT_FOUND', message: 'No existe un plan nutricional activo.' } as const;
-  }
-  active.objective = input.objective;
-  active.targets = input.targets;
-  active.restrictions = input.restrictions?.map((restriction) => restriction.trim()).filter(Boolean) ?? [];
-  active.mealsPerDay = input.mealsPerDay;
-  active.updatedAt = new Date().toISOString();
-  publishEvent(new NutritionPlanUpdatedEvent({ userId, plan: active }));
-  return { ok: true, data: active } as const;
+export async function updateActiveNutritionPlan(userId: string, input: NutritionPlanInput) {
+  return db().uow.transaction(async (tx) => {
+    const plans = await db().plans.listByUser(userId, tx);
+    const active = plans.length > 0 ? plans[plans.length - 1] : null;
+    if (!active) {
+      return { ok: false, code: 'NUTRITION_PLAN_NOT_FOUND', message: 'No existe un plan nutricional activo.' } as const;
+    }
+
+    const updated: NutritionPlan = {
+      ...active,
+      objective: input.objective,
+      targets: input.targets,
+      restrictions: cleanRestrictions(input),
+      mealsPerDay: input.mealsPerDay,
+      updatedAt: new Date().toISOString()
+    };
+    await db().plans.update(updated, tx);
+    await db().events.append([new NutritionPlanUpdatedEvent({ userId, plan: updated })], tx);
+    return { ok: true, data: updated } as const;
+  });
 }

@@ -18,7 +18,26 @@ pnpm test
 pnpm build
 ```
 
-El estado actual usa adaptadores en memoria para poder validar los contratos. La persistencia, Redis, perfiles y `preferences.md` real se integrarán en otra unidad de trabajo.
+Sin variables de entorno todo corre en memoria (útil para tests). Para la arquitectura completa:
+
+```powershell
+pnpm infra:up                     # Postgres (puerto 5433) + RabbitMQ (5672, panel en :15672)
+$env:DATABASE_URL='postgres://noshy:noshy@localhost:5433/noshy'
+$env:RABBITMQ_URL='amqp://guest:guest@localhost:5672'
+pnpm dev                          # API: migra al arrancar, HTTP + comandos por RabbitMQ + relay del outbox
+pnpm dev:worker                   # Worker: consume eventos y alimenta los observers
+```
+
+Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los tests de integración contra Postgres y RabbitMQ reales (usan schemas y exchanges temporales y los borran al terminar).
+
+## Arquitectura
+
+Orientada a eventos, con Transactional Outbox y Event Sourcing:
+
+- **Entrada única:** los controllers HTTP y el consumer de RabbitMQ despachan al mismo `CommandBus` (`modules/*/events/*.handlers.ts`), que valida con los mismos DTOs y llama a los mismos servicios.
+- **Transactional Outbox:** cada mutación guarda su estado, su evento (`event_store`) y su mensaje (`outbox`) en una sola transacción. El `OutboxRelay` entrega el outbox a RabbitMQ (`noshy.events`) o, sin RabbitMQ, a los observers del mismo proceso.
+- **Event Sourcing:** las proyecciones (recomendaciones, preferencias, comunidad) se reconstruyen reproduciendo `event_store`.
+- **GoF:** Observer (`Subject` por usuario y observers idempotentes) y Factory Method (agentes chef por tipo de dieta).
 
 ## Configuración
 
@@ -29,6 +48,8 @@ Variables opcionales:
 | `PORT`            | `3000`            | Puerto HTTP entre 1 y 65535                         |
 | `CORS_ORIGIN`     | `*`               | Origen permitido por CORS                           |
 | `JSON_BODY_LIMIT` | `1mb`             | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb` |
+| `DATABASE_URL`    | —                 | Postgres (`postgres://...`). Sin ella, estado en memoria |
+| `RABBITMQ_URL`    | —                 | RabbitMQ (`amqp://...`). Sin ella, eventos en proceso |
 
 La configuración se valida al iniciar mediante `src/infrastructure/config/env.ts`.
 
@@ -40,7 +61,7 @@ Los endpoints protegidos usan:
 Authorization: Bearer <token>
 ```
 
-El MVP actual usa tokens temporales en memoria. No es un mecanismo de producción.
+El MVP usa tokens `noshy_<userId>`, que son **predecibles**: quien conozca el id de un usuario puede suplantarlo. No es un mecanismo de producción; debe reemplazarse por tokens firmados (JWT o sesiones) antes de exponer la API.
 
 ## Contratos principales
 
@@ -81,4 +102,4 @@ Plan nutricional + preferencias
 
 Cada feature se crea desde el `dev` remoto actualizado, se implementa y valida en su propia rama, se publica en el remoto y finalmente se fusiona a `dev`.
 
-El frontend, la persistencia real, Redis, el event bus y el proveedor de IA están fuera del alcance de este submódulo en la etapa actual.
+El frontend, Redis y el proveedor de IA están fuera del alcance de este submódulo en la etapa actual.

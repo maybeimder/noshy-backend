@@ -1,4 +1,5 @@
 import { DomainEventFactory } from '../../core/events/domain-event.factory';
+import type { Outbox } from '../../core/events/event-store';
 import { OutboxRelay } from '../../core/events/outbox-relay';
 import { SubjectRegistry, type EventDispatcher } from '../../core/events/subject';
 import { PreferenceEngine } from '../../modules/chef-sessions/events/chef-sessions.observers';
@@ -17,11 +18,16 @@ export const eventFactory = new DomainEventFactory(domainEventTypes);
 export const subjectRegistry = new SubjectRegistry(observers);
 
 // dispatcher: subjectRegistry = observers en este proceso; RabbitMqEventPublisher = publica en RabbitMQ.
-export function createOutboxRelay(store = getEventStore(), dispatcher: EventDispatcher = subjectRegistry): OutboxRelay {
+// store: el outbox en memoria (por defecto) o PostgresEventStore.
+export function createOutboxRelay(store: Outbox = getEventStore(), dispatcher: EventDispatcher = subjectRegistry): OutboxRelay {
   return new OutboxRelay(store, eventFactory, dispatcher);
 }
 
 // Arranca el relay del outbox (polling). Devuelve la función para detenerlo.
-export function startEventProcessing(intervalMs = 250, dispatcher: EventDispatcher = subjectRegistry): () => void {
-  return createOutboxRelay(getEventStore(), dispatcher).start(intervalMs);
+export function startEventProcessing(
+  intervalMs = 250,
+  dispatcher: EventDispatcher = subjectRegistry,
+  store: Outbox = getEventStore()
+): () => void {
+  return createOutboxRelay(store, dispatcher).start(intervalMs);
 }

@@ -1,4 +1,4 @@
-import { CommandBus } from '../../core/commands/command-bus';
+import { CommandBus, type ProcessedMessageStore } from '../../core/commands/command-bus';
 import { authHandlers } from '../../modules/auth/events/auth.handlers';
 import { createUnavailableChefAgent, type ChefAgentPort } from '../../modules/chef-sessions/chef-agent.port';
 import { createChefSessionHandlers } from '../../modules/chef-sessions/events/chef-session.handlers';
@@ -10,8 +10,9 @@ import { shoppingListHandlers } from '../../modules/shopping-list/events/shoppin
 
 // Arma el CommandBus con los handlers de todos los módulos. Lo usan createServer() (HTTP)
 // y el consumer de RabbitMQ, así ambos disparan exactamente las mismas funciones.
-export function createCommandBus(options: { chefAgent?: ChefAgentPort } = {}): CommandBus {
-  return new CommandBus().register(
+// processedMessages: con Postgres, la idempotencia de mensajes sobrevive reinicios y es compartida.
+export function createCommandBus(options: { chefAgent?: ChefAgentPort; processedMessages?: ProcessedMessageStore } = {}): CommandBus {
+  return new CommandBus({ processedMessages: options.processedMessages }).register(
     ...authHandlers,
     ...planHandlers,
     ...inventoryHandlers,

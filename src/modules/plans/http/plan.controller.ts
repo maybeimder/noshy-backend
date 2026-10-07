@@ -5,25 +5,25 @@ import type { createNutritionPlan, getActiveNutritionPlan, listNutritionPlans, u
 
 export class PlanController {
   static createNutrition = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof createNutritionPlan>>(request, response, PlanHandlers.create, { data: request.body });
+    const outcome = await runHandler<Awaited<ReturnType<typeof createNutritionPlan>>>(request, response, PlanHandlers.create, { data: request.body });
     if (!outcome) return;
     response.status(201).json(outcome.result);
   };
 
   static listNutrition = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof listNutritionPlans>>(request, response, PlanHandlers.list);
+    const outcome = await runHandler<Awaited<ReturnType<typeof listNutritionPlans>>>(request, response, PlanHandlers.list);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };
 
   static activeNutrition = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof getActiveNutritionPlan>>(request, response, PlanHandlers.active);
+    const outcome = await runHandler<Awaited<ReturnType<typeof getActiveNutritionPlan>>>(request, response, PlanHandlers.active);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };
 
   static updateNutrition = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof updateActiveNutritionPlan>>(request, response, PlanHandlers.updateActive, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof updateActiveNutritionPlan>>>(request, response, PlanHandlers.updateActive, {
       data: request.body
     });
     if (!outcome) return;

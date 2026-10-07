@@ -54,9 +54,31 @@ export type HandlerOutcome =
   | { status: 'unknown_handler' }
   | { status: 'duplicate' };
 
+// Registro de mensajes ya procesados (idempotencia ante reentregas de RabbitMQ).
+export interface ProcessedMessageStore {
+  has(messageId: string): Promise<boolean>;
+  add(messageId: string, handler: string): Promise<void>;
+}
+
+export class InMemoryProcessedMessageStore implements ProcessedMessageStore {
+  private readonly ids = new Set<string>();
+
+  async has(messageId: string) {
+    return this.ids.has(messageId);
+  }
+
+  async add(messageId: string) {
+    this.ids.add(messageId);
+  }
+}
+
 export class CommandBus {
   private readonly definitions = new Map<string, HandlerDefinition>();
-  private readonly handledMessageIds = new Set<string>();
+  private readonly processed: ProcessedMessageStore;
+
+  constructor(options: { processedMessages?: ProcessedMessageStore } = {}) {
+    this.processed = options.processedMessages ?? new InMemoryProcessedMessageStore();
+  }
 
   register(...definitions: HandlerDefinition[]): this {
     for (const definition of definitions) {
@@ -80,7 +102,7 @@ export class CommandBus {
     const definition = this.definitions.get(message.name);
     if (!definition) return { status: 'unknown_handler' };
 
-    if (message.messageId && this.handledMessageIds.has(message.messageId)) {
+    if (message.messageId && (await this.processed.has(message.messageId))) {
       return { status: 'duplicate' };
     }
 
@@ -106,7 +128,7 @@ export class CommandBus {
 
     const result = await definition.execute({ userId, params, data });
     // Se marca solo si ejecutó sin lanzar: si falla, el transporte puede reintentar el mismo mensaje.
-    if (message.messageId) this.handledMessageIds.add(message.messageId);
+    if (message.messageId) await this.processed.add(message.messageId, message.name);
     return { status: 'handled', result };
   }
 }
