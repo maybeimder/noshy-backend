@@ -1,26 +1,17 @@
 import type { Request, Response } from 'express';
-import { createFeedback, listFeedback, listRecommendations } from '../feedback.service';
-import { feedbackInputSchema } from './feedback.dto';
+import { runHandler } from '../../../infrastructure/http/command-dispatch';
+import { FeedbackHandlers } from '../events/feedback.handlers';
+import type { createFeedback, listFeedback, listRecommendations } from '../feedback.service';
 
 export class FeedbackController {
-  static create = (request: Request, response: Response) => {
-    const parsed = feedbackInputSchema.safeParse(request.body);
+  static create = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof createFeedback>>(request, response, FeedbackHandlers.record, {
+      params: { idempotencyKey: request.header('Idempotency-Key') },
+      data: request.body
+    });
+    if (!outcome) return;
+    const { result } = outcome;
 
-    if (!parsed.success) {
-      response.status(400).json({
-        message: 'Datos inválidos.',
-        issues: parsed.error.issues
-      });
-      return;
-    }
-
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const result = createFeedback(user.id, parsed.data, request.header('Idempotency-Key'));
     if ('ok' in result && !result.ok) {
       response.status(409).json({ code: result.code, message: result.message });
       return;
@@ -29,25 +20,17 @@ export class FeedbackController {
     response.status(result.duplicate ? 200 : 201).json(result.entry);
   };
 
-  static list = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    response.status(200).json(listFeedback(user.id));
+  static list = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof listFeedback>>(request, response, FeedbackHandlers.list);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 }
 
 export class RecommendationController {
-  static list = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    response.status(200).json(listRecommendations(user.id));
+  static list = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof listRecommendations>>(request, response, FeedbackHandlers.recommendations);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 }

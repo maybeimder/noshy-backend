@@ -1,20 +1,14 @@
 import type { Request, Response } from 'express';
-import { authHeaderSchema, loginSchema, registerSchema } from './auth.dto';
-import { getUserByToken, loginUser, registerUser } from '../auth.service';
+import { runHandler } from '../../../infrastructure/http/command-dispatch';
+import type { loginUser, registerUser } from '../auth.service';
+import { AuthHandlers } from '../events/auth.handlers';
+import { authHeaderSchema } from './auth.dto';
 
 export class AuthController {
-  static register = (request: Request, response: Response) => {
-    const parsed = registerSchema.safeParse(request.body);
-
-    if (!parsed.success) {
-      response.status(400).json({
-        message: 'Datos inválidos.',
-        issues: parsed.error.issues
-      });
-      return;
-    }
-
-    const result = registerUser(parsed.data);
+  static register = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof registerUser>>(request, response, AuthHandlers.register, { data: request.body });
+    if (!outcome) return;
+    const { result } = outcome;
 
     if (!result.ok) {
       response.status(409).json({ code: result.code, message: result.message });
@@ -24,18 +18,10 @@ export class AuthController {
     response.status(201).json(result.data);
   };
 
-  static login = (request: Request, response: Response) => {
-    const parsed = loginSchema.safeParse(request.body);
-
-    if (!parsed.success) {
-      response.status(400).json({
-        message: 'Datos inválidos.',
-        issues: parsed.error.issues
-      });
-      return;
-    }
-
-    const result = loginUser(parsed.data);
+  static login = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof loginUser>>(request, response, AuthHandlers.login, { data: request.body });
+    if (!outcome) return;
+    const { result } = outcome;
 
     if (!result.ok) {
       response.status(401).json({ code: result.code, message: result.message });
@@ -45,7 +31,7 @@ export class AuthController {
     response.status(200).json(result.data);
   };
 
-  static me = (request: Request, response: Response) => {
+  static me = async (request: Request, response: Response) => {
     const authHeader = request.headers.authorization ?? '';
     const parsed = authHeaderSchema.safeParse({ authorization: authHeader });
 
@@ -55,17 +41,16 @@ export class AuthController {
     }
 
     const token = parsed.data.authorization.replace(/^Bearer\s+/i, '');
-    const user = getUserByToken(token);
+    const outcome = await runHandler<{ id: string; name: string; email: string } | null>(request, response, AuthHandlers.me, {
+      params: { token }
+    });
+    if (!outcome) return;
 
-    if (!user) {
+    if (!outcome.result) {
       response.status(401).json({ message: 'Token inválido o expirado.' });
       return;
     }
 
-    response.status(200).json({
-      id: user.id,
-      name: user.name,
-      email: user.email
-    });
+    response.status(200).json(outcome.result);
   };
 }

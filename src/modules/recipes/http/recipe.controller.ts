@@ -1,56 +1,40 @@
 import type { Request, Response } from 'express';
-import { adaptRecipe } from '../recipe-adaptation.service';
-import { createRecipe, deleteRecipe, getCommunityRecipe, listCommunityRecipes, listRecipes, publishRecipe, unpublishRecipe, updateRecipe } from '../recipe.service';
-import { recipeAdaptationSchema } from './recipe-adaptation.dto';
-import { recipeSchema, recipeUpdateSchema } from './recipe.dto';
+import { routeParam, runHandler } from '../../../infrastructure/http/command-dispatch';
+import { RecipeHandlers } from '../events/recipe.handlers';
+import type { adaptRecipe } from '../recipe-adaptation.service';
+import type {
+  createRecipe,
+  deleteRecipe,
+  getCommunityRecipe,
+  listCommunityRecipes,
+  listRecipes,
+  publishRecipe,
+  unpublishRecipe,
+  updateRecipe
+} from '../recipe.service';
+
+type UserRequest = Request & { user?: { id: string; name: string; email: string } };
 
 export class RecipeController {
-  static create = (request: Request, response: Response) => {
-    const parsed = recipeSchema.safeParse(request.body);
-
-    if (!parsed.success) {
-      response.status(400).json({
-        message: 'Datos inválidos.',
-        issues: parsed.error.issues
-      });
-      return;
-    }
-
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const created = createRecipe(user.id, parsed.data);
-    response.status(201).json(created);
+  static create = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof createRecipe>>(request, response, RecipeHandlers.create, { data: request.body });
+    if (!outcome) return;
+    response.status(201).json(outcome.result);
   };
 
-  static list = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    response.status(200).json(listRecipes(user.id));
+  static list = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof listRecipes>>(request, response, RecipeHandlers.list);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 
-  static update = (request: Request, response: Response) => {
-    const parsed = recipeUpdateSchema.safeParse(request.body);
-    if (!parsed.success) {
-      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
-      return;
-    }
-
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = updateRecipe(user.id, recipeId, parsed.data);
+  static update = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof updateRecipe>>(request, response, RecipeHandlers.update, {
+      params: { recipeId: routeParam(request) },
+      data: request.body
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
@@ -58,15 +42,12 @@ export class RecipeController {
     response.status(200).json(result.data);
   };
 
-  static delete = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = deleteRecipe(user.id, recipeId);
+  static delete = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof deleteRecipe>>(request, response, RecipeHandlers.delete, {
+      params: { recipeId: routeParam(request) }
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
@@ -74,15 +55,12 @@ export class RecipeController {
     response.status(204).send();
   };
 
-  static publish = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = publishRecipe(user.id, recipeId, user.name);
+  static publish = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof publishRecipe>>(request, response, RecipeHandlers.publish, {
+      params: { recipeId: routeParam(request), authorName: (request as UserRequest).user?.name }
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
@@ -91,15 +69,12 @@ export class RecipeController {
     response.status(200).json(result.data);
   };
 
-  static unpublish = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = unpublishRecipe(user.id, recipeId);
+  static unpublish = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof unpublishRecipe>>(request, response, RecipeHandlers.unpublish, {
+      params: { recipeId: routeParam(request) }
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
@@ -108,34 +83,28 @@ export class RecipeController {
     response.status(200).json(result.data);
   };
 
-  static communityList = (_request: Request, response: Response) => {
-    response.status(200).json(listCommunityRecipes());
+  static communityList = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof listCommunityRecipes>>(request, response, RecipeHandlers.communityList);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 
-  static communityDetail = (request: Request, response: Response) => {
-    const recipeId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const recipe = getCommunityRecipe(recipeId);
-    if (!recipe) {
+  static communityDetail = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof getCommunityRecipe>>(request, response, RecipeHandlers.communityDetail, {
+      params: { recipeId: routeParam(request) }
+    });
+    if (!outcome) return;
+    if (!outcome.result) {
       response.status(404).json({ code: 'RECIPE_NOT_FOUND', message: 'No existe la receta pública solicitada.' });
       return;
     }
-    response.status(200).json(recipe);
+    response.status(200).json(outcome.result);
   };
 
-  static adapt = (request: Request, response: Response) => {
-    const parsed = recipeAdaptationSchema.safeParse(request.body);
-    if (!parsed.success) {
-      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
-      return;
-    }
-
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const result = adaptRecipe(user.id, parsed.data.recipeId);
+  static adapt = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof adaptRecipe>>(request, response, RecipeHandlers.adapt, { data: request.body });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
