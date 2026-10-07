@@ -7,6 +7,8 @@ import {
   getChefSessionContext
 } from './chef-session.service';
 
+// No es una sola transacción a propósito: en medio hay una llamada a la IA (lenta y externa)
+// y no se debe mantener una transacción abierta mientras tanto. Cada paso es atómico por sí mismo.
 export async function respondWithChefAgent(
   userId: string,
   sessionId: string,
@@ -14,17 +16,17 @@ export async function respondWithChefAgent(
   agent: ChefAgentPort,
   recipeId?: string
 ) {
-  const recipe = recipeId ? getRecipeForChef(userId, recipeId) ?? undefined : undefined;
+  const recipe = recipeId ? (await getRecipeForChef(userId, recipeId)) ?? undefined : undefined;
   if (recipeId && !recipe) {
     return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
   }
 
-  const userMessage = addChefSessionMessage(userId, sessionId, content);
+  const userMessage = await addChefSessionMessage(userId, sessionId, content);
   if (!userMessage.ok) {
     return userMessage;
   }
 
-  const context = getChefSessionContext(userId, sessionId);
+  const context = await getChefSessionContext(userId, sessionId);
   if (!context.ok) {
     return context;
   }
@@ -40,14 +42,14 @@ export async function respondWithChefAgent(
     } as const;
   }
 
-  const assistantMessage = addChefAssistantMessage(userId, sessionId, agentResponse.message);
+  const assistantMessage = await addChefAssistantMessage(userId, sessionId, agentResponse.message);
   if (!assistantMessage.ok) {
     return assistantMessage;
   }
 
   const feedback = [];
   for (const event of agentResponse.feedback) {
-    const result = createFeedback(userId, { ...event, sessionId }, event.idempotencyKey);
+    const result = await createFeedback(userId, { ...event, sessionId }, event.idempotencyKey);
     if ('ok' in result && !result.ok) {
       return {
         ok: false,

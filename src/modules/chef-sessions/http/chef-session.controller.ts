@@ -6,13 +6,13 @@ import { ChefSessionHandlers } from '../events/chef-session.handlers';
 
 export class ChefSessionController {
   static open = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof openChefSession>>(request, response, ChefSessionHandlers.open);
+    const outcome = await runHandler<Awaited<ReturnType<typeof openChefSession>>>(request, response, ChefSessionHandlers.open);
     if (!outcome) return;
     response.status(201).json(outcome.result);
   };
 
   static close = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof closeChefSession>>(request, response, ChefSessionHandlers.close, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof closeChefSession>>>(request, response, ChefSessionHandlers.close, {
       params: { sessionId: routeParam(request) },
       data: request.body
     });
@@ -32,7 +32,7 @@ export class ChefSessionController {
   };
 
   static addMessage = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof addChefSessionMessage>>(request, response, ChefSessionHandlers.addMessage, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof addChefSessionMessage>>>(request, response, ChefSessionHandlers.addMessage, {
       params: { sessionId: routeParam(request) },
       data: request.body
     });
@@ -47,7 +47,7 @@ export class ChefSessionController {
   };
 
   static context = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof getChefSessionContext>>(request, response, ChefSessionHandlers.context, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof getChefSessionContext>>>(request, response, ChefSessionHandlers.context, {
       params: { sessionId: routeParam(request) }
     });
     if (!outcome) return;

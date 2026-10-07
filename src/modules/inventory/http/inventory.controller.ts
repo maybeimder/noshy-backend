@@ -5,19 +5,19 @@ import type { addInventoryItem, deleteInventoryItem, listInventoryItems, updateI
 
 export class InventoryController {
   static create = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof addInventoryItem>>(request, response, InventoryHandlers.add, { data: request.body });
+    const outcome = await runHandler<Awaited<ReturnType<typeof addInventoryItem>>>(request, response, InventoryHandlers.add, { data: request.body });
     if (!outcome) return;
     response.status(201).json(outcome.result);
   };
 
   static list = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof listInventoryItems>>(request, response, InventoryHandlers.list);
+    const outcome = await runHandler<Awaited<ReturnType<typeof listInventoryItems>>>(request, response, InventoryHandlers.list);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };
 
   static update = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof updateInventoryItem>>(request, response, InventoryHandlers.update, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof updateInventoryItem>>>(request, response, InventoryHandlers.update, {
       params: { itemId: routeParam(request) },
       data: request.body
     });
@@ -31,7 +31,7 @@ export class InventoryController {
   };
 
   static delete = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof deleteInventoryItem>>(request, response, InventoryHandlers.remove, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof deleteInventoryItem>>>(request, response, InventoryHandlers.remove, {
       params: { itemId: routeParam(request) }
     });
     if (!outcome) return;

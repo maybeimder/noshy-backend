@@ -17,19 +17,19 @@ type UserRequest = Request & { user?: { id: string; name: string; email: string 
 
 export class RecipeController {
   static create = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof createRecipe>>(request, response, RecipeHandlers.create, { data: request.body });
+    const outcome = await runHandler<Awaited<ReturnType<typeof createRecipe>>>(request, response, RecipeHandlers.create, { data: request.body });
     if (!outcome) return;
     response.status(201).json(outcome.result);
   };
 
   static list = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof listRecipes>>(request, response, RecipeHandlers.list);
+    const outcome = await runHandler<Awaited<ReturnType<typeof listRecipes>>>(request, response, RecipeHandlers.list);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };
 
   static update = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof updateRecipe>>(request, response, RecipeHandlers.update, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof updateRecipe>>>(request, response, RecipeHandlers.update, {
       params: { recipeId: routeParam(request) },
       data: request.body
     });
@@ -43,7 +43,7 @@ export class RecipeController {
   };
 
   static delete = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof deleteRecipe>>(request, response, RecipeHandlers.delete, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof deleteRecipe>>>(request, response, RecipeHandlers.delete, {
       params: { recipeId: routeParam(request) }
     });
     if (!outcome) return;
@@ -56,7 +56,7 @@ export class RecipeController {
   };
 
   static publish = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof publishRecipe>>(request, response, RecipeHandlers.publish, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof publishRecipe>>>(request, response, RecipeHandlers.publish, {
       params: { recipeId: routeParam(request), authorName: (request as UserRequest).user?.name }
     });
     if (!outcome) return;
@@ -70,7 +70,7 @@ export class RecipeController {
   };
 
   static unpublish = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof unpublishRecipe>>(request, response, RecipeHandlers.unpublish, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof unpublishRecipe>>>(request, response, RecipeHandlers.unpublish, {
       params: { recipeId: routeParam(request) }
     });
     if (!outcome) return;
@@ -84,13 +84,13 @@ export class RecipeController {
   };
 
   static communityList = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof listCommunityRecipes>>(request, response, RecipeHandlers.communityList);
+    const outcome = await runHandler<Awaited<ReturnType<typeof listCommunityRecipes>>>(request, response, RecipeHandlers.communityList);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };
 
   static communityDetail = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof getCommunityRecipe>>(request, response, RecipeHandlers.communityDetail, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof getCommunityRecipe>>>(request, response, RecipeHandlers.communityDetail, {
       params: { recipeId: routeParam(request) }
     });
     if (!outcome) return;
@@ -102,7 +102,7 @@ export class RecipeController {
   };
 
   static adapt = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof adaptRecipe>>(request, response, RecipeHandlers.adapt, { data: request.body });
+    const outcome = await runHandler<Awaited<ReturnType<typeof adaptRecipe>>>(request, response, RecipeHandlers.adapt, { data: request.body });
     if (!outcome) return;
     const { result } = outcome;
     if (!result.ok) {

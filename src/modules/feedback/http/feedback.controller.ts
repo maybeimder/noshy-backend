@@ -5,7 +5,7 @@ import type { createFeedback, listFeedback, listRecommendations } from '../feedb
 
 export class FeedbackController {
   static create = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof createFeedback>>(request, response, FeedbackHandlers.record, {
+    const outcome = await runHandler<Awaited<ReturnType<typeof createFeedback>>>(request, response, FeedbackHandlers.record, {
       params: { idempotencyKey: request.header('Idempotency-Key') },
       data: request.body
     });
@@ -21,7 +21,7 @@ export class FeedbackController {
   };
 
   static list = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof listFeedback>>(request, response, FeedbackHandlers.list);
+    const outcome = await runHandler<Awaited<ReturnType<typeof listFeedback>>>(request, response, FeedbackHandlers.list);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };
@@ -29,7 +29,7 @@ export class FeedbackController {
 
 export class RecommendationController {
   static list = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof listRecommendations>>(request, response, FeedbackHandlers.recommendations);
+    const outcome = await runHandler<Awaited<ReturnType<typeof listRecommendations>>>(request, response, FeedbackHandlers.recommendations);
     if (!outcome) return;
     response.status(200).json(outcome.result);
   };

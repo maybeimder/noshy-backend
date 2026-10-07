@@ -1,62 +1,52 @@
 import { randomUUID } from 'node:crypto';
+import { db } from '../../infrastructure/persistence/persistence';
 import { getActiveChefSession } from '../chef-sessions/chef-session.service';
-import { publishEvent } from '../../infrastructure/event-bus/event-bus';
 import { FeedbackRecordedEvent } from './events/feedback.events';
 import type { FeedbackEntry, FeedbackInput } from './feedback.model';
 
-const feedbackByUserId = new Map<string, FeedbackEntry[]>();
-const feedbackByIdempotencyKey = new Map<string, Map<string, FeedbackEntry>>();
-
-export function createFeedback(userId: string, input: FeedbackInput, idempotencyKey?: string) {
-  if (idempotencyKey) {
-    const existing = feedbackByIdempotencyKey.get(userId)?.get(idempotencyKey);
-    if (existing) {
-      return { entry: existing, duplicate: true } as const;
+export async function createFeedback(userId: string, input: FeedbackInput, idempotencyKey?: string) {
+  return db().uow.transaction(async (tx) => {
+    if (idempotencyKey) {
+      const existing = await db().feedback.findByIdempotencyKey(userId, idempotencyKey, tx);
+      if (existing) {
+        return { entry: existing, duplicate: true } as const;
+      }
     }
-  }
 
-  if (!getActiveChefSession(userId, input.sessionId)) {
-    return {
-      ok: false,
-      code: 'CHEF_SESSION_NOT_ACTIVE',
-      message: 'La sesión del agente no está activa.'
-    } as const;
-  }
+    if (!(await getActiveChefSession(userId, input.sessionId, tx))) {
+      return {
+        ok: false,
+        code: 'CHEF_SESSION_NOT_ACTIVE',
+        message: 'La sesión del agente no está activa.'
+      } as const;
+    }
 
-  const entry: FeedbackEntry = {
-    id: randomUUID(),
-    userId,
-    sessionId: input.sessionId,
-    targetType: input.targetType,
-    targetId: input.targetId.trim(),
-    targetName: input.targetName.trim(),
-    eventType: input.eventType,
-    note: input.note?.trim(),
-    idempotencyKey,
-    createdAt: new Date().toISOString()
-  };
+    const entry: FeedbackEntry = {
+      id: randomUUID(),
+      userId,
+      sessionId: input.sessionId,
+      targetType: input.targetType,
+      targetId: input.targetId.trim(),
+      targetName: input.targetName.trim(),
+      eventType: input.eventType,
+      note: input.note?.trim(),
+      idempotencyKey,
+      createdAt: new Date().toISOString()
+    };
 
-  const current = feedbackByUserId.get(userId) ?? [];
-  current.push(entry);
-  feedbackByUserId.set(userId, current);
+    await db().feedback.insert(entry, tx);
+    await db().events.append([new FeedbackRecordedEvent({ userId, entry })], tx);
 
-  if (idempotencyKey) {
-    const keys = feedbackByIdempotencyKey.get(userId) ?? new Map<string, FeedbackEntry>();
-    keys.set(idempotencyKey, entry);
-    feedbackByIdempotencyKey.set(userId, keys);
-  }
-
-  publishEvent(new FeedbackRecordedEvent({ userId, entry }));
-
-  return { entry, duplicate: false } as const;
+    return { entry, duplicate: false } as const;
+  });
 }
 
 export function listFeedback(userId: string) {
-  return feedbackByUserId.get(userId) ?? [];
+  return db().feedback.listByUser(userId);
 }
 
-export function listRecommendations(userId: string) {
-  const current = feedbackByUserId.get(userId) ?? [];
+export async function listRecommendations(userId: string) {
+  const current = await db().feedback.listByUser(userId);
   const positiveEvents = new Set(['selected', 'prepared', 'repeated']);
 
   return [...current]

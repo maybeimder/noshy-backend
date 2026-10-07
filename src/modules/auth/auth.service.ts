@@ -1,78 +1,69 @@
 import { randomUUID } from 'node:crypto';
-import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { db } from '../../infrastructure/persistence/persistence';
 import type { AuthUser, LoginInput, RegisterInput } from './auth.model';
 import { UserLoggedInEvent, UserRegisteredEvent } from './events/auth.events';
-
-const users = new Map<string, AuthUser>();
-const tokenByUserId = new Map<string, string>();
+import { hashPassword, verifyPassword } from './password';
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
+const tokenFor = (userId: string) => `noshy_${userId}`;
+const publicUser = (user: AuthUser) => ({ id: user.id, name: user.name, email: user.email });
 
-export function registerUser(input: RegisterInput) {
+export async function registerUser(input: RegisterInput) {
   const email = normalizeEmail(input.email);
 
-  if (users.has(email)) {
-    return {
-      ok: false,
-      code: 'USER_ALREADY_EXISTS',
-      message: 'El usuario ya existe.'
-    } as const;
-  }
-
-  const user: AuthUser = {
-    id: randomUUID(),
-    name: input.name.trim(),
-    email,
-    password: input.password,
-    createdAt: new Date().toISOString()
-  };
-
-  users.set(email, user);
-
-  const token = `noshy_${user.id}`;
-  tokenByUserId.set(user.id, token);
-  publishEvent(new UserRegisteredEvent({ userId: user.id, name: user.name, email: user.email }));
-
-  return {
-    ok: true,
-    data: {
-      user: { id: user.id, name: user.name, email: user.email },
-      token
+  return db().uow.transaction(async (tx) => {
+    if (await db().users.findByEmail(email, tx)) {
+      return {
+        ok: false,
+        code: 'USER_ALREADY_EXISTS',
+        message: 'El usuario ya existe.'
+      } as const;
     }
-  } as const;
+
+    const user: AuthUser = {
+      id: randomUUID(),
+      name: input.name.trim(),
+      email,
+      password: await hashPassword(input.password),
+      createdAt: new Date().toISOString()
+    };
+
+    await db().users.insert(user, tx);
+    await db().events.append([new UserRegisteredEvent({ userId: user.id, name: user.name, email: user.email })], tx);
+
+    return {
+      ok: true,
+      data: { user: publicUser(user), token: tokenFor(user.id) }
+    } as const;
+  });
 }
 
-export function loginUser(input: LoginInput) {
+export async function loginUser(input: LoginInput) {
   const email = normalizeEmail(input.email);
-  const user = users.get(email);
 
-  if (!user || user.password !== input.password) {
-    return {
-      ok: false,
-      code: 'INVALID_CREDENTIALS',
-      message: 'Credenciales inválidas.'
-    } as const;
-  }
-
-  const token = tokenByUserId.get(user.id) ?? `noshy_${user.id}`;
-  publishEvent(new UserLoggedInEvent({ userId: user.id, email: user.email }));
-
-  return {
-    ok: true,
-    data: {
-      user: { id: user.id, name: user.name, email: user.email },
-      token
+  return db().uow.transaction(async (tx) => {
+    const user = await db().users.findByEmail(email, tx);
+    if (!user || !(await verifyPassword(input.password, user.password))) {
+      return {
+        ok: false,
+        code: 'INVALID_CREDENTIALS',
+        message: 'Credenciales inválidas.'
+      } as const;
     }
-  } as const;
+
+    await db().events.append([new UserLoggedInEvent({ userId: user.id, email: user.email })], tx);
+
+    return {
+      ok: true,
+      data: { user: publicUser(user), token: tokenFor(user.id) }
+    } as const;
+  });
 }
 
-export function getUserByToken(token: string) {
+export async function getUserByToken(token: string) {
   if (!token.startsWith('noshy_')) {
     return null;
   }
 
-  const userId = token.replace('noshy_', '');
-  const user = [...users.values()].find((entry) => entry.id === userId) ?? null;
-
-  return user;
+  return db().users.findById(token.replace('noshy_', ''));
 }

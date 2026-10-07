@@ -6,7 +6,7 @@ import { authHeaderSchema } from './auth.dto';
 
 export class AuthController {
   static register = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof registerUser>>(request, response, AuthHandlers.register, { data: request.body });
+    const outcome = await runHandler<Awaited<ReturnType<typeof registerUser>>>(request, response, AuthHandlers.register, { data: request.body });
     if (!outcome) return;
     const { result } = outcome;
 
@@ -19,7 +19,7 @@ export class AuthController {
   };
 
   static login = async (request: Request, response: Response) => {
-    const outcome = await runHandler<ReturnType<typeof loginUser>>(request, response, AuthHandlers.login, { data: request.body });
+    const outcome = await runHandler<Awaited<ReturnType<typeof loginUser>>>(request, response, AuthHandlers.login, { data: request.body });
     if (!outcome) return;
     const { result } = outcome;
 

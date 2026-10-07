@@ -3,14 +3,14 @@ import { listRecipes } from './recipe.service';
 
 const normalize = (value: string) => value.trim().toLowerCase();
 
-export function adaptRecipe(userId: string, recipeId: string) {
-  const recipe = listRecipes(userId).find((entry) => entry.id === recipeId);
+export async function adaptRecipe(userId: string, recipeId: string) {
+  const recipe = (await listRecipes(userId)).find((entry) => entry.id === recipeId);
   if (!recipe) {
     return { ok: false, code: 'RECIPE_NOT_FOUND', message: 'No existe la receta solicitada.' } as const;
   }
 
   const availableByKey = new Map<string, number>();
-  for (const item of listInventoryItems(userId)) {
+  for (const item of await listInventoryItems(userId)) {
     const key = `${normalize(item.name)}::${normalize(item.unit)}`;
     availableByKey.set(key, (availableByKey.get(key) ?? 0) + item.quantity);
   }
