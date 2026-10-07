@@ -1,0 +1,39 @@
+meta {
+  name: Generate from inline ingredients
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/shopping-list
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "recipes": [
+      {
+        "title": "Ensalada",
+        "servings": 1,
+        "ingredients": [
+          {
+            "name": "Lechuga",
+            "quantity": 1,
+            "unit": "unidad"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

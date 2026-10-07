@@ -1,0 +1,33 @@
+meta {
+  name: Add item
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/inventory/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "Arroz",
+    "quantity": 2,
+    "unit": "kg"
+  }
+}
+
+script:post-response {
+  bru.setVar("itemId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

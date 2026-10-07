@@ -1,0 +1,29 @@
+meta {
+  name: Add item - pollo
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/inventory/items
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "Pollo",
+    "quantity": 0.5,
+    "unit": "kg"
+  }
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

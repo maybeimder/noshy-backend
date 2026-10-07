@@ -1,0 +1,32 @@
+meta {
+  name: Generate from recipe
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/shopping-list
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "recipes": [
+      {
+        "recipeId": "{{recipeId}}",
+        "servings": 2
+      }
+    ]
+  }
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

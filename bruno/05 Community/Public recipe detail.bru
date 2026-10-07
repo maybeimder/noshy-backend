@@ -1,0 +1,17 @@
+meta {
+  name: Public recipe detail
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/community/recipes/{{recipeId}}
+  body: none
+  auth: none
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

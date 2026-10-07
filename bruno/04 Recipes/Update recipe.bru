@@ -1,0 +1,27 @@
+meta {
+  name: Update recipe
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/recipes/{{recipeId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "title": "Arroz con pollo de la abuela"
+  }
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

@@ -16,7 +16,8 @@
     "start": "node dist/entrypoints/api.js",
     "start:worker": "node dist/entrypoints/worker.js",
     "build": "tsc",
-    "test": "tsx --test \"src/**/*.test.ts\""
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test:bruno": "cd bruno && npx --yes @usebruno/cli@4 run --env local"
   },
   "keywords": [],
   "author": "",

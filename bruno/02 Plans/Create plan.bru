@@ -1,0 +1,35 @@
+meta {
+  name: Create plan
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/plans
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "objective": "maintain",
+    "targets": {
+      "calories": 2000,
+      "proteinGrams": 120
+    },
+    "restrictions": [
+      "sin gluten"
+    ],
+    "mealsPerDay": 4
+  }
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

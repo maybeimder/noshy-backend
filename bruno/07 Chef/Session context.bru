@@ -1,0 +1,21 @@
+meta {
+  name: Session context
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/chef/sessions/{{sessionId}}/context
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
