@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { getActiveChefSession } from '../chef-sessions/chef-session.service';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import { FeedbackRecordedEvent } from './events/feedback.events';
 import type { FeedbackEntry, FeedbackInput } from './feedback.model';
 
 const feedbackByUserId = new Map<string, FeedbackEntry[]>();
@@ -43,6 +45,8 @@ export function createFeedback(userId: string, input: FeedbackInput, idempotency
     keys.set(idempotencyKey, entry);
     feedbackByIdempotencyKey.set(userId, keys);
   }
+
+  publishEvent(new FeedbackRecordedEvent({ userId, entry }));
 
   return { entry, duplicate: false } as const;
 }

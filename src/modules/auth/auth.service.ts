@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
 import type { AuthUser, LoginInput, RegisterInput } from './auth.model';
+import { UserLoggedInEvent, UserRegisteredEvent } from './events/auth.events';
 
 const users = new Map<string, AuthUser>();
 const tokenByUserId = new Map<string, string>();
@@ -29,6 +31,7 @@ export function registerUser(input: RegisterInput) {
 
   const token = `noshy_${user.id}`;
   tokenByUserId.set(user.id, token);
+  publishEvent(new UserRegisteredEvent({ userId: user.id, name: user.name, email: user.email }));
 
   return {
     ok: true,
@@ -52,6 +55,7 @@ export function loginUser(input: LoginInput) {
   }
 
   const token = tokenByUserId.get(user.id) ?? `noshy_${user.id}`;
+  publishEvent(new UserLoggedInEvent({ userId: user.id, email: user.email }));
 
   return {
     ok: true,

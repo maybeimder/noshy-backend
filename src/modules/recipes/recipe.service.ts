@@ -1,4 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
+import {
+  RecipeCreatedEvent,
+  RecipeDeletedEvent,
+  RecipePublishedEvent,
+  RecipeUnpublishedEvent,
+  RecipeUpdatedEvent
+} from './events/recipe.events';
 import type { Recipe, RecipeInput, RecipeUpdate } from './recipe.model';
 
 const recipesByUserId = new Map<string, Recipe[]>();
@@ -21,6 +29,7 @@ export function createRecipe(userId: string, input: RecipeInput) {
   const recipes = recipesByUserId.get(userId) ?? [];
   recipes.push(recipe);
   recipesByUserId.set(userId, recipes);
+  publishEvent(new RecipeCreatedEvent({ userId, recipe }));
 
   return recipe;
 }
@@ -46,6 +55,7 @@ export function updateRecipe(userId: string, recipeId: string, input: RecipeUpda
   if (input.instructions !== undefined) {
     recipe.instructions = input.instructions.map((instruction) => instruction.trim()).filter(Boolean);
   }
+  publishEvent(new RecipeUpdatedEvent({ userId, recipe }));
   return { ok: true, data: recipe } as const;
 }
 
@@ -57,6 +67,7 @@ export function deleteRecipe(userId: string, recipeId: string) {
   }
 
   recipes.splice(index, 1);
+  publishEvent(new RecipeDeletedEvent({ userId, recipeId }));
   return { ok: true } as const;
 }
 
@@ -81,6 +92,7 @@ export function publishRecipe(userId: string, recipeId: string, authorName: stri
   recipe.isPublic = true;
   recipe.authorName = authorName;
   recipe.publishedAt = recipe.publishedAt ?? new Date().toISOString();
+  publishEvent(new RecipePublishedEvent({ userId, recipe }));
 
   return { ok: true, data: recipe } as const;
 }
@@ -92,6 +104,7 @@ export function unpublishRecipe(userId: string, recipeId: string) {
   }
 
   recipe.isPublic = false;
+  publishEvent(new RecipeUnpublishedEvent({ userId, recipeId }));
   return { ok: true, data: recipe } as const;
 }
 

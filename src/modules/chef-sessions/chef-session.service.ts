@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { getActiveNutritionPlan } from '../plans/plan.service';
 import { listInventoryItems } from '../inventory/inventory.service';
+import { publishEvent } from '../../infrastructure/event-bus/event-bus';
 import type { ChefSession, ChefSessionMessage, CloseChefSessionInput } from './chef-session.model';
+import {
+  ChefMessageRecordedEvent,
+  ChefSessionClosedEvent,
+  ChefSessionOpenedEvent,
+  ChefSessionRecoveryRequiredEvent
+} from './events/chef-session.events';
 import { InMemoryPreferencesRepository, type PreferencesRepository } from './preferences.repository';
 
 const sessions = new Map<string, ChefSession>();
@@ -27,6 +34,7 @@ export function openChefSession(userId: string) {
 
   sessions.set(session.id, session);
   messagesBySessionId.set(session.id, []);
+  publishEvent(new ChefSessionOpenedEvent({ userId, sessionId: session.id, preferencesVersion: session.preferencesVersion }));
   return session;
 }
 
@@ -55,6 +63,7 @@ function addSessionMessage(userId: string, sessionId: string, role: ChefSessionM
   const messages = messagesBySessionId.get(sessionId) ?? [];
   messages.push(message);
   messagesBySessionId.set(sessionId, messages);
+  publishEvent(new ChefMessageRecordedEvent({ userId, sessionId, messageId: message.id, role }));
 
   return { ok: true, data: message } as const;
 }
@@ -98,6 +107,7 @@ export function closeChefSession(userId: string, sessionId: string, input: Close
 
   if (!preferences) {
     session.status = 'recovery_pending';
+    publishEvent(new ChefSessionRecoveryRequiredEvent({ userId, sessionId }));
     return { ok: false, code: 'PREFERENCES_VERSION_CONFLICT', data: session } as const;
   }
 
@@ -106,6 +116,12 @@ export function closeChefSession(userId: string, sessionId: string, input: Close
   session.preferencesMarkdown = preferences.content;
   session.closedAt = new Date().toISOString();
   session.closeReason = input.reason;
+  publishEvent(new ChefSessionClosedEvent({
+    userId,
+    sessionId,
+    reason: input.reason,
+    preferencesVersion: session.preferencesVersion
+  }));
 
   return { ok: true, data: session } as const;
 }
