@@ -1,0 +1,21 @@
+meta {
+  name: Publish recipe
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/recipes/{{recipeId}}/publish
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

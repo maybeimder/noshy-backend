@@ -1,0 +1,35 @@
+meta {
+  name: Update active plan
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/plans/active
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "objective": "gain_muscle",
+    "targets": {
+      "calories": 2500,
+      "proteinGrams": 150
+    },
+    "restrictions": [
+      "sin gluten"
+    ],
+    "mealsPerDay": 5
+  }
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

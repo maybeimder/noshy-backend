@@ -1,0 +1,21 @@
+meta {
+  name: Delete item
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/inventory/items/{{itemId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 204", function () {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

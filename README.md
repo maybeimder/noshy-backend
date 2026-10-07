@@ -28,6 +28,8 @@ pnpm dev                          # API: migra al arrancar, HTTP + comandos por 
 pnpm dev:worker                   # Worker: consume eventos y alimenta los observers
 ```
 
+Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (34 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
+
 Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los tests de integración contra Postgres y RabbitMQ reales (usan schemas y exchanges temporales y los borran al terminar).
 
 ## Arquitectura

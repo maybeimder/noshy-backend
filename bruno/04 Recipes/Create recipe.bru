@@ -1,0 +1,53 @@
+meta {
+  name: Create recipe
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/recipes
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "title": "Arroz con pollo",
+    "ingredients": [
+      {
+        "name": "Arroz",
+        "quantity": 1,
+        "unit": "kg"
+      },
+      {
+        "name": "Pollo",
+        "quantity": 1,
+        "unit": "kg"
+      },
+      {
+        "name": "Cebolla",
+        "quantity": 1,
+        "unit": "unidad"
+      }
+    ],
+    "instructions": [
+      "Sofreír la cebolla",
+      "Dorar el pollo",
+      "Agregar el arroz y cocinar 20 minutos"
+    ]
+  }
+}
+
+script:post-response {
+  bru.setVar("recipeId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

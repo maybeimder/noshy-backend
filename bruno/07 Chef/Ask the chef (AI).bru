@@ -1,0 +1,32 @@
+meta {
+  name: Ask the chef (AI)
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/chef/sessions/{{sessionId}}/respond
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "content": "¿Qué cocino hoy con lo que tengo? Ya no quiero comer brócoli.",
+    "recipeId": "{{recipeId}}"
+  }
+}
+
+tests {
+  test("responde 200 o 503", function () {
+    expect([200, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Usa OpenRouter con modelos gratuitos. Requiere OPENROUTER_API_KEY en la API; sin ella responde 503.
+}

@@ -1,0 +1,25 @@
+meta {
+  name: Open session
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/chef/sessions
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+script:post-response {
+  bru.setVar("sessionId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

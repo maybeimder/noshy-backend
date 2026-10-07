@@ -1,0 +1,21 @@
+meta {
+  name: Delete recipe
+  type: http
+  seq: 2
+}
+
+delete {
+  url: {{baseUrl}}/recipes/{{recipeId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 204", function () {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

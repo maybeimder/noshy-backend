@@ -1,0 +1,40 @@
+meta {
+  name: Record feedback - retry (idempotent)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/feedback
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{idempotencyKey}}
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "sessionId": "{{sessionId}}",
+    "targetType": "recipe",
+    "targetId": "{{recipeId}}",
+    "targetName": "Arroz con pollo",
+    "eventType": "prepared",
+    "note": "Quedó buenísimo"
+  }
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+
+docs {
+  Misma Idempotency-Key que la anterior: devuelve el registro existente (200) en lugar de duplicarlo.
+}

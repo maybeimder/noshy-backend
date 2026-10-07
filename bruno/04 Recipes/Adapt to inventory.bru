@@ -1,0 +1,27 @@
+meta {
+  name: Adapt to inventory
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/recipes/adapt
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "recipeId": "{{recipeId}}"
+  }
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

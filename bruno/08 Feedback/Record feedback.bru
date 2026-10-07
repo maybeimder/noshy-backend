@@ -1,0 +1,40 @@
+meta {
+  name: Record feedback
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/feedback
+  body: json
+  auth: bearer
+}
+
+headers {
+  Idempotency-Key: {{idempotencyKey}}
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "sessionId": "{{sessionId}}",
+    "targetType": "recipe",
+    "targetId": "{{recipeId}}",
+    "targetName": "Arroz con pollo",
+    "eventType": "prepared",
+    "note": "Quedó buenísimo"
+  }
+}
+
+script:pre-request {
+  bru.setVar("idempotencyKey", `fb-${Date.now()}`);
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

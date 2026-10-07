@@ -1,0 +1,27 @@
+meta {
+  name: Update item
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/inventory/items/{{itemId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "quantity": 3
+  }
+}
+
+tests {
+  test("responde 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

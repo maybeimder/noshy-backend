@@ -1,0 +1,38 @@
+meta {
+  name: Register
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/register
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "name": "Ana",
+    "email": "{{email}}",
+    "password": "{{password}}"
+  }
+}
+
+script:pre-request {
+  bru.setVar("email", `ana.${Date.now()}@noshy.com`);
+}
+
+script:post-response {
+  bru.setVar("token", res.getBody().token);
+  bru.setVar("userId", res.getBody().user.id);
+}
+
+tests {
+  test("responde 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("devuelve un JWT", function () {
+    expect(res.getBody().token.split(".")).to.have.length(3);
+  });
+}
