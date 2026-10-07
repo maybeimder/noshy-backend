@@ -18,6 +18,11 @@ test('getEnv parses configured values', () => {
   });
 });
 
+test('getEnv reads an optional RabbitMQ URL and rejects non-AMQP URLs', () => {
+  assert.equal(getEnv({ RABBITMQ_URL: 'amqp://guest:guest@localhost:5672' }).rabbitmqUrl, 'amqp://guest:guest@localhost:5672');
+  assert.throws(() => getEnv({ RABBITMQ_URL: 'http://localhost' }), /amqp/);
+});
+
 test('getEnv rejects invalid ports', () => {
   assert.throws(() => getEnv({ PORT: '0' }), /Configuración de entorno inválida/);
 });
