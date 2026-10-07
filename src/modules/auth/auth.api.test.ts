@@ -23,7 +23,7 @@ test('POST /auth/register creates a user and returns a token', async () => {
     const body = await response.json();
     assert.equal(body.user.email, 'ana@noshy.com');
     assert.equal(body.user.name, 'Ana');
-    assert.match(body.token, /^noshy_/);
+    assert.match(body.token, /^[\w-]+\.[\w-]+\.[\w-]+$/, 'debe ser un JWT (header.payload.firma)');
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

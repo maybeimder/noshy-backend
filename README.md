@@ -50,6 +50,8 @@ Variables opcionales:
 | `JSON_BODY_LIMIT` | `1mb`             | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb` |
 | `DATABASE_URL`    | —                 | Postgres (`postgres://...`). Sin ella, estado en memoria |
 | `RABBITMQ_URL`    | —                 | RabbitMQ (`amqp://...`). Sin ella, eventos en proceso |
+| `JWT_SECRET`      | aleatorio         | Secreto (≥32 caracteres) para firmar los JWT. **Obligatorio con `NODE_ENV=production`** |
+| `JWT_EXPIRES_IN`  | `7d`              | Vigencia del token, por ejemplo `15m`, `12h` o `7d` |
 
 La configuración se valida al iniciar mediante `src/infrastructure/config/env.ts`.
 
@@ -61,7 +63,9 @@ Los endpoints protegidos usan:
 Authorization: Bearer <token>
 ```
 
-El MVP usa tokens `noshy_<userId>`, que son **predecibles**: quien conozca el id de un usuario puede suplantarlo. No es un mecanismo de producción; debe reemplazarse por tokens firmados (JWT o sesiones) antes de exponer la API.
+`POST /auth/register` y `POST /auth/login` devuelven un **JWT HS256** firmado con `JWT_SECRET` (emisor `noshy`, audiencia `noshy-api`, `sub` = id del usuario). Se rechazan los tokens adulterados, expirados o firmados con otro secreto. Sin `JWT_SECRET` la API usa un secreto temporal y los tokens dejan de valer al reiniciarla.
+
+No hay revocación ni refresh token: un token vale hasta que expira.
 
 ## Contratos principales
 

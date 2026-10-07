@@ -15,10 +15,19 @@ import { RabbitMqConnection } from '../infrastructure/event-bus/rabbitmq/rabbitm
 import { startEventProcessing, subjectRegistry } from '../infrastructure/event-bus/register-observers';
 import { createServer } from '../infrastructure/http/server';
 import { configurePersistence } from '../infrastructure/persistence/persistence';
+import { configureAuthTokens } from '../modules/auth/token';
 
 async function main() {
   const environment = getEnv();
   const shutdown: (() => unknown)[] = [];
+
+  if (environment.jwtSecret) {
+    configureAuthTokens({ secret: environment.jwtSecret, expiresIn: environment.jwtExpiresIn });
+  } else if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET es obligatorio en producción.');
+  } else {
+    console.warn('JWT_SECRET no definido: se usa un secreto temporal y los tokens dejan de valer al reiniciar la API.');
+  }
 
   // Sin DATABASE_URL todo vive en memoria (se pierde al reiniciar).
   let outbox: Outbox = getEventStore();
