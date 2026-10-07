@@ -31,6 +31,21 @@ export interface EventStore {
   readAll(): StoredEvent[];
 }
 
+// Versión persistente (base de datos). `append` recibe la transacción del caso de uso (`tx`) para que
+// el cambio de estado y el evento se confirmen juntos: ese es el Transactional Outbox real.
+export interface PersistentEventStore<Tx = unknown> {
+  append(events: DomainEvent<any>[], tx?: Tx): Promise<StoredEvent[]>;
+  readStream(streamId: string): Promise<StoredEvent[]>;
+  readAll(): Promise<StoredEvent[]>;
+}
+
+// Se lanza cuando dos escrituras compiten por la misma versión de un stream (concurrencia optimista).
+export class StreamVersionConflictError extends Error {
+  constructor(readonly streamId: string) {
+    super(`Conflicto de versión en el stream ${streamId}`);
+  }
+}
+
 // Lado de lectura del outbox, usado por el relay.
 export interface Outbox {
   pending(limit?: number): Promise<OutboxMessage[]>;

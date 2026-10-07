@@ -23,6 +23,11 @@ test('getEnv reads an optional RabbitMQ URL and rejects non-AMQP URLs', () => {
   assert.throws(() => getEnv({ RABBITMQ_URL: 'http://localhost' }), /amqp/);
 });
 
+test('getEnv reads an optional Postgres URL and rejects other schemes', () => {
+  assert.equal(getEnv({ DATABASE_URL: 'postgres://noshy:noshy@localhost:5433/noshy' }).databaseUrl, 'postgres://noshy:noshy@localhost:5433/noshy');
+  assert.throws(() => getEnv({ DATABASE_URL: 'mysql://localhost' }), /postgres/);
+});
+
 test('getEnv rejects invalid ports', () => {
   assert.throws(() => getEnv({ PORT: '0' }), /Configuración de entorno inválida/);
 });
