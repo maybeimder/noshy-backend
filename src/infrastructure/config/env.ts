@@ -10,7 +10,11 @@ const environmentSchema = z.object({
   DATABASE_URL: z.string().trim().regex(/^postgres(ql)?:\/\//i, 'DATABASE_URL debe empezar con postgres:// o postgresql://').optional(),
   // Secreto para firmar los JWT. Sin él se usa uno aleatorio por proceso (los tokens mueren al reiniciar).
   JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres').optional(),
-  JWT_EXPIRES_IN: z.string().trim().regex(/^\d+[smhd]$/, 'JWT_EXPIRES_IN debe ser como 15m, 12h o 7d').optional()
+  JWT_EXPIRES_IN: z.string().trim().regex(/^\d+[smhd]$/, 'JWT_EXPIRES_IN debe ser como 15m, 12h o 7d').optional(),
+  // Opcional: sin key el agente chef no está disponible (POST /chef/sessions/:id/respond -> 503).
+  OPENROUTER_API_KEY: z.string().trim().min(1).optional(),
+  // Opcional: modelos separados por coma; el primero es el preferido y los demás son respaldo.
+  OPENROUTER_MODEL: z.string().trim().min(1).optional()
 });
 
 export type EnvironmentConfig = {
@@ -21,6 +25,8 @@ export type EnvironmentConfig = {
   databaseUrl?: string;
   jwtSecret?: string;
   jwtExpiresIn?: string;
+  openRouterApiKey?: string;
+  openRouterModels?: string[];
 };
 
 export function getEnv(environment: NodeJS.ProcessEnv = process.env): EnvironmentConfig {
@@ -36,6 +42,10 @@ export function getEnv(environment: NodeJS.ProcessEnv = process.env): Environmen
     ...(parsed.data.RABBITMQ_URL ? { rabbitmqUrl: parsed.data.RABBITMQ_URL } : {}),
     ...(parsed.data.DATABASE_URL ? { databaseUrl: parsed.data.DATABASE_URL } : {}),
     ...(parsed.data.JWT_SECRET ? { jwtSecret: parsed.data.JWT_SECRET } : {}),
-    ...(parsed.data.JWT_EXPIRES_IN ? { jwtExpiresIn: parsed.data.JWT_EXPIRES_IN } : {})
+    ...(parsed.data.JWT_EXPIRES_IN ? { jwtExpiresIn: parsed.data.JWT_EXPIRES_IN } : {}),
+    ...(parsed.data.OPENROUTER_API_KEY ? { openRouterApiKey: parsed.data.OPENROUTER_API_KEY } : {}),
+    ...(parsed.data.OPENROUTER_MODEL
+      ? { openRouterModels: parsed.data.OPENROUTER_MODEL.split(',').map((model) => model.trim()).filter(Boolean) }
+      : {})
   };
 }
