@@ -5,7 +5,9 @@ const environmentSchema = z.object({
   CORS_ORIGIN: z.string().trim().min(1).default('*'),
   JSON_BODY_LIMIT: z.string().regex(/^\d+(kb|mb)$/i).default('1mb'),
   // Opcional: sin él todo corre en memoria dentro del proceso de la API.
-  RABBITMQ_URL: z.string().trim().regex(/^amqps?:\/\//i, 'RABBITMQ_URL debe empezar con amqp:// o amqps://').optional()
+  RABBITMQ_URL: z.string().trim().regex(/^amqps?:\/\//i, 'RABBITMQ_URL debe empezar con amqp:// o amqps://').optional(),
+  // Opcional: sin él el Event Store y el Outbox viven en memoria.
+  DATABASE_URL: z.string().trim().regex(/^postgres(ql)?:\/\//i, 'DATABASE_URL debe empezar con postgres:// o postgresql://').optional()
 });
 
 export type EnvironmentConfig = {
@@ -13,6 +15,7 @@ export type EnvironmentConfig = {
   corsOrigin: string;
   jsonBodyLimit: string;
   rabbitmqUrl?: string;
+  databaseUrl?: string;
 };
 
 export function getEnv(environment: NodeJS.ProcessEnv = process.env): EnvironmentConfig {
@@ -25,6 +28,7 @@ export function getEnv(environment: NodeJS.ProcessEnv = process.env): Environmen
     port: parsed.data.PORT,
     corsOrigin: parsed.data.CORS_ORIGIN,
     jsonBodyLimit: parsed.data.JSON_BODY_LIMIT,
-    ...(parsed.data.RABBITMQ_URL ? { rabbitmqUrl: parsed.data.RABBITMQ_URL } : {})
+    ...(parsed.data.RABBITMQ_URL ? { rabbitmqUrl: parsed.data.RABBITMQ_URL } : {}),
+    ...(parsed.data.DATABASE_URL ? { databaseUrl: parsed.data.DATABASE_URL } : {})
   };
 }

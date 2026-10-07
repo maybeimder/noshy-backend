@@ -13,3 +13,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: noshy-postgres
+    ports:
+      - "5433:5432" # 5433 en el host: evita chocar con un PostgreSQL local en 5432
+    environment:
+      POSTGRES_DB: noshy
+      POSTGRES_USER: noshy
+      POSTGRES_PASSWORD: noshy
+    volumes:
+      - noshy-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U noshy -d noshy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  noshy-postgres-data:
