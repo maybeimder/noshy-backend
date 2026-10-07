@@ -1,50 +1,33 @@
 import type { Request, Response } from 'express';
-import { createNutritionPlan, getActiveNutritionPlan, listNutritionPlans, updateActiveNutritionPlan } from '../plan.service';
-import { nutritionPlanInputSchema } from './plan.dto';
-
-type AuthenticatedRequest = Request & { user?: { id: string; name: string; email: string } };
+import { runHandler } from '../../../infrastructure/http/command-dispatch';
+import { PlanHandlers } from '../events/plan.handlers';
+import type { createNutritionPlan, getActiveNutritionPlan, listNutritionPlans, updateActiveNutritionPlan } from '../plan.service';
 
 export class PlanController {
-  static createNutrition = (request: AuthenticatedRequest, response: Response) => {
-    const parsed = nutritionPlanInputSchema.safeParse(request.body);
-    if (!parsed.success) {
-      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
-      return;
-    }
-    if (!request.user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-    response.status(201).json(createNutritionPlan(request.user.id, parsed.data));
+  static createNutrition = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof createNutritionPlan>>(request, response, PlanHandlers.create, { data: request.body });
+    if (!outcome) return;
+    response.status(201).json(outcome.result);
   };
 
-  static listNutrition = (request: AuthenticatedRequest, response: Response) => {
-    if (!request.user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-    response.status(200).json(listNutritionPlans(request.user.id));
+  static listNutrition = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof listNutritionPlans>>(request, response, PlanHandlers.list);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 
-  static activeNutrition = (request: AuthenticatedRequest, response: Response) => {
-    if (!request.user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-    response.status(200).json(getActiveNutritionPlan(request.user.id));
+  static activeNutrition = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof getActiveNutritionPlan>>(request, response, PlanHandlers.active);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 
-  static updateNutrition = (request: AuthenticatedRequest, response: Response) => {
-    const parsed = nutritionPlanInputSchema.safeParse(request.body);
-    if (!parsed.success) {
-      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
-      return;
-    }
-    if (!request.user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-    const result = updateActiveNutritionPlan(request.user.id, parsed.data);
+  static updateNutrition = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof updateActiveNutritionPlan>>(request, response, PlanHandlers.updateActive, {
+      data: request.body
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;

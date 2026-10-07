@@ -1,54 +1,28 @@
 import type { Request, Response } from 'express';
-import { addInventoryItem, deleteInventoryItem, listInventoryItems, updateInventoryItem } from '../inventory.service';
-import { inventoryItemSchema, inventoryItemUpdateSchema } from './inventory.dto';
+import { routeParam, runHandler } from '../../../infrastructure/http/command-dispatch';
+import { InventoryHandlers } from '../events/inventory.handlers';
+import type { addInventoryItem, deleteInventoryItem, listInventoryItems, updateInventoryItem } from '../inventory.service';
 
 export class InventoryController {
-  static create = (request: Request, response: Response) => {
-    const parsed = inventoryItemSchema.safeParse(request.body);
-
-    if (!parsed.success) {
-      response.status(400).json({
-        message: 'Datos inválidos.',
-        issues: parsed.error.issues
-      });
-      return;
-    }
-
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const created = addInventoryItem(user.id, parsed.data);
-    response.status(201).json(created);
+  static create = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof addInventoryItem>>(request, response, InventoryHandlers.add, { data: request.body });
+    if (!outcome) return;
+    response.status(201).json(outcome.result);
   };
 
-  static list = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    response.status(200).json(listInventoryItems(user.id));
+  static list = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof listInventoryItems>>(request, response, InventoryHandlers.list);
+    if (!outcome) return;
+    response.status(200).json(outcome.result);
   };
 
-  static update = (request: Request, response: Response) => {
-    const parsed = inventoryItemUpdateSchema.safeParse(request.body);
-    if (!parsed.success) {
-      response.status(400).json({ message: 'Datos inválidos.', issues: parsed.error.issues });
-      return;
-    }
-
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const itemId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = updateInventoryItem(user.id, itemId, parsed.data);
+  static update = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof updateInventoryItem>>(request, response, InventoryHandlers.update, {
+      params: { itemId: routeParam(request) },
+      data: request.body
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
@@ -56,15 +30,12 @@ export class InventoryController {
     response.status(200).json(result.data);
   };
 
-  static delete = (request: Request, response: Response) => {
-    const user = (request as Request & { user?: { id: string; name: string; email: string } }).user;
-    if (!user) {
-      response.status(401).json({ message: 'No autorizado.' });
-      return;
-    }
-
-    const itemId = Array.isArray(request.params.id) ? request.params.id[0] : request.params.id;
-    const result = deleteInventoryItem(user.id, itemId);
+  static delete = async (request: Request, response: Response) => {
+    const outcome = await runHandler<ReturnType<typeof deleteInventoryItem>>(request, response, InventoryHandlers.remove, {
+      params: { itemId: routeParam(request) }
+    });
+    if (!outcome) return;
+    const { result } = outcome;
     if (!result.ok) {
       response.status(404).json({ code: result.code, message: result.message });
       return;
