@@ -3,9 +3,9 @@ import { db } from '../../infrastructure/persistence/persistence';
 import type { AuthUser, LoginInput, RegisterInput } from './auth.model';
 import { UserLoggedInEvent, UserRegisteredEvent } from './events/auth.events';
 import { hashPassword, verifyPassword } from './password';
+import { issueToken, verifyToken } from './token';
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
-const tokenFor = (userId: string) => `noshy_${userId}`;
 const publicUser = (user: AuthUser) => ({ id: user.id, name: user.name, email: user.email });
 
 export async function registerUser(input: RegisterInput) {
@@ -33,7 +33,7 @@ export async function registerUser(input: RegisterInput) {
 
     return {
       ok: true,
-      data: { user: publicUser(user), token: tokenFor(user.id) }
+      data: { user: publicUser(user), token: await issueToken(user.id) }
     } as const;
   });
 }
@@ -55,15 +55,13 @@ export async function loginUser(input: LoginInput) {
 
     return {
       ok: true,
-      data: { user: publicUser(user), token: tokenFor(user.id) }
+      data: { user: publicUser(user), token: await issueToken(user.id) }
     } as const;
   });
 }
 
+// Token inválido, expirado, firmado con otro secreto o de un usuario que ya no existe -> null.
 export async function getUserByToken(token: string) {
-  if (!token.startsWith('noshy_')) {
-    return null;
-  }
-
-  return db().users.findById(token.replace('noshy_', ''));
+  const userId = await verifyToken(token);
+  return userId ? db().users.findById(userId) : null;
 }

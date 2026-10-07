@@ -98,11 +98,13 @@ test('failed operations and idempotent duplicates record nothing', async () => {
 });
 
 test('events never leak credentials', async () => {
-  await registerUser({ name: 'Leak', email: 'leak@noshy.com', password: 'SuperSecret123!' });
+  const registered = await registerUser({ name: 'Leak', email: 'leak@noshy.com', password: 'SuperSecret123!' });
+  assert.ok(registered.ok);
 
   const dump = JSON.stringify(store.readAll());
-  assert.ok(!dump.includes('SuperSecret123!'));
-  assert.ok(!dump.includes('noshy_'));
+  assert.ok(!dump.includes('SuperSecret123!'), 'ni la contraseña');
+  assert.ok(!dump.includes(registered.data.token), 'ni el token');
+  assert.ok(!dump.includes('scrypt$'), 'ni el hash');
 });
 
 test('the relay feeds the observers; duplicates and retries do not double count', async () => {
