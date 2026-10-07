@@ -2,6 +2,7 @@
 // config -> conecta Postgres (opcional) -> conecta RabbitMQ (opcional) -> arranca OutboxRelay -> consume comandos -> app.listen()
 import type { ProcessedMessageStore } from '../core/commands/command-bus';
 import type { Outbox } from '../core/events/event-store';
+import { DEFAULT_OPENROUTER_MODELS, OpenRouterChefAgent } from '../infrastructure/ai/openrouter-chef-agent';
 import { getEnv } from '../infrastructure/config/env';
 import { createPool } from '../infrastructure/database/db.connection';
 import { runMigrations } from '../infrastructure/database/migrations';
@@ -44,8 +45,18 @@ async function main() {
     console.log('Postgres conectado: estado, Event Store y Outbox persistentes.');
   }
 
+  // Agente chef: OpenRouter si hay key; si no, POST /chef/sessions/:id/respond responde 503.
+  const chefAgent = environment.openRouterApiKey
+    ? new OpenRouterChefAgent({ apiKey: environment.openRouterApiKey, models: environment.openRouterModels })
+    : undefined;
+  console.log(
+    chefAgent
+      ? `Agente chef: OpenRouter (${(environment.openRouterModels ?? DEFAULT_OPENROUTER_MODELS).join(' -> ')}).`
+      : 'Agente chef deshabilitado: define OPENROUTER_API_KEY para activarlo.'
+  );
+
   // Un solo bus para HTTP y RabbitMQ: los dos disparan los mismos handlers sobre el mismo estado.
-  const commandBus = createCommandBus({ processedMessages });
+  const commandBus = createCommandBus({ processedMessages, chefAgent });
 
   if (environment.rabbitmqUrl) {
     const rabbit = await RabbitMqConnection.connect(environment.rabbitmqUrl);

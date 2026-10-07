@@ -38,6 +38,12 @@ test('getEnv reads JWT settings and rejects weak secrets', () => {
   assert.throws(() => getEnv({ JWT_EXPIRES_IN: 'mañana' }), /JWT_EXPIRES_IN/);
 });
 
+test('getEnv reads the OpenRouter key and a comma-separated model list', () => {
+  const environment = getEnv({ OPENROUTER_API_KEY: 'sk-or-test', OPENROUTER_MODEL: 'a:free, b:free' });
+  assert.equal(environment.openRouterApiKey, 'sk-or-test');
+  assert.deepEqual(environment.openRouterModels, ['a:free', 'b:free']);
+});
+
 test('getEnv rejects invalid ports', () => {
   assert.throws(() => getEnv({ PORT: '0' }), /Configuración de entorno inválida/);
 });
