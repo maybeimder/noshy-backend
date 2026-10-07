@@ -44,6 +44,10 @@ test('getEnv reads the OpenRouter key and a comma-separated model list', () => {
   assert.deepEqual(environment.openRouterModels, ['a:free', 'b:free']);
 });
 
+test('getEnv treats empty values (KEY= in .env) as not defined', () => {
+  assert.deepEqual(getEnv({ JWT_SECRET: '', DATABASE_URL: '  ', OPENROUTER_API_KEY: '' }), { port: 3000, corsOrigin: '*', jsonBodyLimit: '1mb' });
+});
+
 test('getEnv rejects invalid ports', () => {
   assert.throws(() => getEnv({ PORT: '0' }), /Configuración de entorno inválida/);
 });

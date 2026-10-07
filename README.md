@@ -22,11 +22,12 @@ Sin variables de entorno todo corre en memoria (útil para tests). Para la arqui
 
 ```powershell
 pnpm infra:up                     # Postgres (puerto 5433) + RabbitMQ (5672, panel en :15672)
-$env:DATABASE_URL='postgres://noshy:noshy@localhost:5433/noshy'
-$env:RABBITMQ_URL='amqp://guest:guest@localhost:5672'
+Copy-Item .env.example .env       # y completa DATABASE_URL, RABBITMQ_URL, JWT_SECRET, OPENROUTER_API_KEY
 pnpm dev                          # API: migra al arrancar, HTTP + comandos por RabbitMQ + relay del outbox
 pnpm dev:worker                   # Worker: consume eventos y alimenta los observers
 ```
+
+La API, el worker y `pnpm db:migrate` cargan `backend/.env` al arrancar (las variables de la terminal tienen prioridad). Los tests no lo leen.
 
 Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (34 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
 

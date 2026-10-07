@@ -34,25 +34,31 @@ pnpm infra:up
 
 Postgres queda en `localhost:5433` y RabbitMQ en `localhost:5672` (panel en http://localhost:15672, `guest` / `guest`).
 
-**3. Configurar las variables** — en cada terminal que uses para la API o el worker:
+**3. Configurar las variables** — copia el ejemplo y complétalo:
 
 ```powershell
-$env:DATABASE_URL = 'postgres://noshy:noshy@localhost:5433/noshy'
-$env:RABBITMQ_URL = 'amqp://guest:guest@localhost:5672'
-$env:JWT_SECRET   = 'cambia-esto-por-un-secreto-de-al-menos-32-caracteres'
-$env:OPENROUTER_API_KEY = 'sk-or-...'   # opcional: sin ella el chef responde 503
+Copy-Item .env.example .env    # macOS/Linux: cp .env.example .env
 ```
 
-En macOS/Linux usa `export DATABASE_URL=...` en lugar de `$env:`.
+Descomenta y rellena en `backend/.env`:
 
-**4. Arrancar la API y el worker** (dos terminales, ambas con las variables del paso 3)
+```dotenv
+DATABASE_URL=postgres://noshy:noshy@localhost:5433/noshy
+RABBITMQ_URL=amqp://guest:guest@localhost:5672
+JWT_SECRET=<genera uno: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))">
+OPENROUTER_API_KEY=sk-or-...    # opcional: sin ella el chef responde 503
+```
+
+La API, el worker y `pnpm db:migrate` leen `.env` solos. `.env` está en `.gitignore`: **nunca lo subas** (contiene tus secretos). Lo que definas en la terminal (`$env:X=...`) tiene prioridad sobre el archivo.
+
+**4. Arrancar la API y el worker** (dos terminales)
 
 ```powershell
 pnpm dev          # terminal 1: API en http://localhost:3000 (migra la base al arrancar)
 pnpm dev:worker   # terminal 2: consume eventos de RabbitMQ y alimenta los observers
 ```
 
-La API debe imprimir `Postgres conectado`, `RabbitMQ conectado` y `Server is running on port 3000`.
+La API debe imprimir `Variables cargadas desde .env`, `Postgres conectado`, `Agente chef: OpenRouter (...)`, `RabbitMQ conectado` y `Server is running on port 3000`.
 
 **5. Abrir la colección en Bruno**
 
