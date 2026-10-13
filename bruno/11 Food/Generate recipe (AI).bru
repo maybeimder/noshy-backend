@@ -1,0 +1,47 @@
+meta {
+  name: Generate recipe (AI)
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/food/recipes/generate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "ingredients": [
+      { "name": "arroz", "grams": 200 },
+      { "name": "pollo", "grams": 300 },
+      { "name": "cebolla" }
+    ],
+    "servings": 2,
+    "notes": "Algo rápido para el almuerzo"
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    bru.setVar("generatedRecipeId", res.getBody().recipe.id);
+  }
+}
+
+tests {
+  test("responde 201 (503 sin Mongo u OpenRouter)", function () {
+    expect([201, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  RAG: traduce los ingredientes, trae recetas de referencia de recipes_raw, el modelo de OpenRouter redacta la receta en español
+  y el back calcula los macros cruzando cada ingrediente con products_slim (el modelo NO calcula macros).
+  Si mandas "foodId" (del dropdown) se usa ese producto; si no, se busca por nombre (genérico crudo primero).
+  Respuesta: { recipe, references, recipeInput }. recipeInput se puede mandar tal cual a POST /recipes para guardarla.
+  Registra el evento food.recipe_generated. Tarda ~15 s con los modelos gratuitos.
+}

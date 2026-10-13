@@ -29,7 +29,7 @@ pnpm dev:worker                   # Worker: consume eventos y alimenta los obser
 
 La API, el worker y `pnpm db:migrate` cargan `backend/.env` al arrancar (las variables de la terminal tienen prioridad). Los tests no lo leen.
 
-Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (34 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
+Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (43 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
 
 Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los tests de integración contra Postgres y RabbitMQ reales (usan schemas y exchanges temporales y los borran al terminar).
 
@@ -96,6 +96,7 @@ Variables opcionales:
 | `JWT_EXPIRES_IN`  | `7d`              | Vigencia del token, por ejemplo `15m`, `12h` o `7d` |
 | `OPENROUTER_API_KEY` | —              | Activa el agente chef con OpenRouter. Sin ella, `respond` devuelve 503 |
 | `OPENROUTER_MODEL`   | modelos `:free` | Lista separada por comas; el primero es el preferido y el resto respaldo |
+| `MONGO_URL`          | —               | Catálogo de alimentos y recetas (Mongo de solo lectura). Sin ella, `/food` devuelve 503 |
 
 La configuración se valida al iniciar mediante `src/infrastructure/config/env.ts`.
 
@@ -123,6 +124,8 @@ No hay revocación ni refresh token: un token vale hasta que expira.
 | Agente chef      | sesiones, contexto, mensajes y `POST /chef/sessions/:id/respond`                 |
 | Feedback         | `POST/GET /feedback`, `GET /recommendations`                                     |
 | Compras          | `POST /shopping-list` desde recetas guardadas o recetas inline del agente        |
+| Alimentos        | `GET /food/products?q=`, `GET /food/products/:id`, `POST /food/macros`, `GET /food/history` |
+| Recetas IA (RAG) | `GET /food/library/recipes?ingredients=`, `GET /food/library/recipes/:id`, `POST /food/recipes/generate`, `GET /food/recipes/:id` |
 
 Los errores de rutas desconocidas y JSON inválido usan el formato:
 
@@ -155,5 +158,19 @@ Cada feature se crea desde el `dev` remoto actualizado, se implementa y valida e
 `POST /chef/sessions/:id/respond` usa `OpenRouterChefAgent` (`src/infrastructure/ai/`). Por defecto usa modelos **gratuitos** (`nvidia/nemotron-3-super-120b-a12b:free`, con respaldo en `google/gemma-4-31b-it:free` y `openrouter/free`), así que no consume créditos. El agente recibe el plan, las preferencias, el inventario, la receta y el historial de la sesión, y responde en JSON con un mensaje y los eventos de feedback que detecte (que se registran como `feedback.feedback_recorded`).
 
 Los modelos gratuitos tienen límites de uso por minuto y por día, y sus proveedores pueden registrar los prompts: no envíes datos sensibles reales.
+
+## Alimentos y recetas (MongoDB)
+
+El módulo `food` consulta un MongoDB **de solo lectura** (base `food`, usuario con rol `read`), aparte de Postgres y RabbitMQ:
+
+- **`products_slim`** (catálogo de ~7.6k alimentos): `GET /food/products?q=arroz blanco` para el dropdown. Normaliza el texto (minúsculas, sin tildes), exige todas las palabras, excluye `suspect` y ordena por `popularity` (el genérico va primero). Siempre se muestra el `state` (crudo y cocido tienen macros muy distintos).
+- **Macros** (`POST /food/macros`): por gramos o por porción (`serving` + `quantity`); sin cantidad usa 100 g y lo avisa. Con `"log": true` registra la comida (evento `food.meal_logged`).
+- **`recipes_raw`** (RecipeNLG, ~2.2M recetas en inglés, sin calorías): `GET /food/library/recipes?ingredients=pollo,arroz`. Los ingredientes se traducen al inglés con OpenRouter (con caché en memoria) y se buscan por `ner`.
+- **RAG** (`POST /food/recipes/generate`): trae recetas de referencia, el modelo de OpenRouter redacta una receta en español y **el back calcula los macros** cruzando cada ingrediente con `products_slim` (en recetas, sin indicación se asume crudo). Registra `food.recipe_generated` y devuelve `recipeInput`, listo para `POST /recipes`.
+- **Historial** (`GET /food/history`, `GET /food/recipes/:id`): no tiene tabla propia, se reconstruye reproduciendo los eventos `food.*` del usuario (Event Sourcing).
+
+Todo pasa por el `CommandBus` (`food.*` en `modules/food/events/food.handlers.ts`), así que también se puede disparar por RabbitMQ. El adaptador (`infrastructure/database/mongo/`) solo usa `find` y `aggregate`, con proyección, `limit` y `maxTimeMS`; el texto del usuario se escapa antes de entrar a un regex y los DTO rechazan objetos (`{ "$ne": "" }`). Si Mongo no responde al arrancar, la API sigue arriba, reintenta con backoff y responde 503 mientras tanto. Al conectar avisa en el log si faltan los índices `products_slim.popularity` o `recipes_raw.ner`.
+
+RecipeNLG es solo para uso educativo/investigación no comercial: se usa como referencia interna, no se redistribuye.
 
 El frontend y Redis están fuera del alcance de este submódulo en la etapa actual.

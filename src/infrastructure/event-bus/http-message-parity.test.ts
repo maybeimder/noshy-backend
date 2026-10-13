@@ -134,7 +134,7 @@ test('business errors come back as the service result, not as exceptions', async
 
 test('every module exposes its handlers', () => {
   const names = commands['inner'].names();
-  for (const prefix of ['auth.', 'plans.', 'inventory.', 'recipes.', 'community.', 'feedback.', 'recommendations.', 'shopping.', 'chef.']) {
+  for (const prefix of ['auth.', 'plans.', 'inventory.', 'recipes.', 'community.', 'feedback.', 'recommendations.', 'shopping.', 'chef.', 'food.']) {
     assert.ok(names.some((name) => name.startsWith(prefix)), `faltan handlers ${prefix}`);
   }
 });

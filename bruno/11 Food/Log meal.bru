@@ -1,0 +1,34 @@
+meta {
+  name: Log meal
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/food/macros
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "items": [{ "foodId": "{{foodId}}", "grams": 200 }],
+    "log": true,
+    "label": "Almuerzo"
+  }
+}
+
+tests {
+  test("responde 200 con mealId (404/503 sin catálogo)", function () {
+    expect([200, 404, 503]).to.include(res.getStatus());
+    if (res.getStatus() === 200) expect(res.getBody().mealId).to.be.a("string");
+  });
+}
+
+docs {
+  Igual que Calculate macros, pero con "log": true guarda la comida como evento food.meal_logged (Event Store + Outbox).
+}

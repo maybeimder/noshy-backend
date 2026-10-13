@@ -1,0 +1,25 @@
+meta {
+  name: Product detail
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/food/products/{{foodId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200 (404/503 si la búsqueda no encontró nada o no hay Mongo)", function () {
+    expect([200, 404, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Ficha completa: per100g, servings (porciones), alérgenos, nutriscore, nova, estado (crudo/cocido)...
+}

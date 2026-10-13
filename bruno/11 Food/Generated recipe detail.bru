@@ -1,0 +1,25 @@
+meta {
+  name: Generated recipe detail
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/food/recipes/{{generatedRecipeId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200 (404 si no se generó)", function () {
+    expect([200, 404]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Se reconstruye desde el Event Store (evento food.recipe_generated): no hay tabla de recetas generadas.
+}

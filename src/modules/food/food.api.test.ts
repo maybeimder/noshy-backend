@@ -1,0 +1,311 @@
+import assert from 'node:assert/strict';
+import type { AddressInfo } from 'node:net';
+import { test } from 'node:test';
+import { InMemoryEventStore } from '../../core/events/in-memory-event-store';
+import { setEventStore } from '../../infrastructure/event-bus/event-bus';
+import { createServer } from '../../infrastructure/http/server';
+import { normalizeSearchText, searchTerms, type FoodCatalogPort } from './food-catalog.port';
+import type { FoodNutritionFacts, FoodProduct, LibraryRecipe } from './food.model';
+import type { RecipeWriterContext, RecipeWriterPort } from './recipe-writer.port';
+import { escapeRegex } from '../../infrastructure/database/mongo/mongo-food-catalog';
+
+const store = new InMemoryEventStore();
+setEventStore(store);
+
+type FakeProduct = FoodProduct & { popularity: number };
+const product = (overrides: Partial<FakeProduct> & Pick<FoodProduct, 'id' | 'name'>): FakeProduct => ({
+  brand: 'generic',
+  isGeneric: true,
+  quantity: null,
+  per100g: {},
+  servings: [{ label: '100 g', grams: 100 }],
+  allergens: [],
+  traces: [],
+  dietTags: [],
+  labels: [],
+  categories: [],
+  image: null,
+  popularity: 1,
+  ...overrides
+});
+
+const PRODUCTS = [
+  product({
+    id: 'usda:1',
+    name: 'Arroz blanco (crudo)',
+    state: 'raw',
+    pairKey: 'arroz-blanco',
+    popularity: 1_000_000,
+    per100g: { kcal: 365, protein_g: 7.1, carbs_g: 80, fat_g: 0.7 },
+    servings: [{ label: '100 g', grams: 100 }, { label: '1 taza', grams: 185 }]
+  }),
+  product({
+    id: 'usda:2',
+    name: 'Arroz blanco (cocido)',
+    state: 'cooked',
+    pairKey: 'arroz-blanco',
+    popularity: 999_999,
+    per100g: { kcal: 130, protein_g: 2.7, carbs_g: 28, fat_g: 0.3 }
+  }),
+  product({ id: '7701', name: 'Arroz Diana', brand: 'diana', isGeneric: false, popularity: 50, per100g: { kcal: 360 } }),
+  product({ id: 'usda:3', name: 'Pechuga de pollo (cruda)', state: 'raw', popularity: 1_000_000, per100g: { kcal: 120, protein_g: 22.5, fat_g: 2.6 } })
+];
+
+const LIBRARY: LibraryRecipe[] = [
+  { id: 10, title: 'Chicken Fried Rice', ingredients: ['2 c. rice', '1 lb. chicken'], directions: ['Cook rice.', 'Fry with chicken.'], ner: ['rice', 'chicken', 'egg'], nIngredients: 3 },
+  { id: 11, title: 'Plain Rice', ingredients: ['1 c. rice'], directions: ['Boil.'], ner: ['rice', 'water'], nIngredients: 2 }
+];
+
+// Catálogo falso con la misma semántica que el adaptador de Mongo.
+class FakeCatalog implements FoodCatalogPort {
+  available = true;
+  private check() {
+    if (!this.available) throw new Error('Mongo caído');
+  }
+  async searchProducts(terms: string[], limit: number) {
+    this.check();
+    return PRODUCTS.filter((item) => terms.every((term) => new RegExp(`\\b${escapeRegex(term)}`).test(normalizeSearchText(`${item.name} ${item.brand}`))))
+      .sort((left, right) => right.popularity - left.popularity)
+      .slice(0, limit)
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        brand: item.brand,
+        ...(item.state ? { state: item.state } : {}),
+        isGeneric: item.isGeneric,
+        image: null,
+        kcalPer100g: item.per100g.kcal ?? null,
+        baseServing: item.servings[0]
+      }));
+  }
+  async getProduct(id: string) {
+    this.check();
+    return PRODUCTS.find((item) => item.id === id) ?? null;
+  }
+  async getNutritionFacts(ids: string[]): Promise<FoodNutritionFacts[]> {
+    this.check();
+    return PRODUCTS.filter((item) => ids.includes(item.id));
+  }
+  async searchLibraryRecipes(ingredients: string[], options: { limit: number }) {
+    this.check();
+    return LIBRARY.filter((recipe) => ingredients.every((name) => recipe.ner.includes(name)))
+      .slice(0, options.limit)
+      .map((recipe) => ({ id: recipe.id, title: recipe.title, ner: recipe.ner, nIngredients: recipe.nIngredients, extraIngredients: recipe.ner.length - ingredients.length }));
+  }
+  async getLibraryRecipes(ids: number[]) {
+    this.check();
+    return LIBRARY.filter((recipe) => ids.includes(recipe.id));
+  }
+}
+
+class FakeWriter implements RecipeWriterPort {
+  contexts: RecipeWriterContext[] = [];
+  translations = 0;
+  async translateIngredients(names: string[]) {
+    this.translations++;
+    const dictionary: Record<string, string> = { arroz: 'rice', pollo: 'chicken' };
+    return names.map((name) => dictionary[name] ?? name);
+  }
+  async writeRecipe(context: RecipeWriterContext) {
+    this.contexts.push(context);
+    return {
+      title: 'Arroz con pollo',
+      servings: 2,
+      ingredients: [
+        { name: 'Arroz', grams: 200, foodId: 'usda:1' },
+        { name: 'Pollo', grams: 300 },
+        { name: 'Polvo de hadas', grams: 5 }
+      ],
+      steps: ['Cocina el arroz.', 'Agrega el pollo.']
+    };
+  }
+}
+
+const catalog = new FakeCatalog();
+const writer = new FakeWriter();
+
+async function withApi(run: (call: (path: string, init?: RequestInit) => Promise<{ status: number; body: any }>) => Promise<void>) {
+  const server = createServer({ foodCatalog: catalog, recipeWriter: writer }).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const register = await fetch(`${base}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Food', email: `food-${Math.random()}@noshy.com`, password: 'StrongPass1!' })
+    });
+    const { token } = await register.json();
+    await run(async (path, init = {}) => {
+      const response = await fetch(`${base}${path}`, {
+        ...init,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(init.headers ?? {}) }
+      });
+      return { status: response.status, body: response.status === 204 ? null : await response.json() };
+    });
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+}
+
+test('search terms are normalized like products_slim.search and regex input is escaped', () => {
+  assert.deepEqual(searchTerms('  Árroz BLANCO, arroz '), ['arroz', 'blanco']);
+  assert.deepEqual(searchTerms('...'), []);
+  assert.equal(escapeRegex('a.*(b)'), 'a\\.\\*\\(b\\)');
+});
+
+test('dropdown search: generic first, every word required, state is always shown', async () => {
+  await withApi(async (call) => {
+    const all = await call('/food/products?q=arroz');
+    assert.equal(all.status, 200);
+    assert.deepEqual(all.body.map((item: any) => item.id), ['usda:1', 'usda:2', '7701']);
+    assert.deepEqual(all.body[0].baseServing, { label: '100 g', grams: 100 });
+    assert.equal(all.body[1].state, 'cooked');
+
+    const narrowed = await call('/food/products?q=arroz%20cocido&limit=5');
+    assert.deepEqual(narrowed.body.map((item: any) => item.id), ['usda:2']);
+
+    assert.deepEqual((await call('/food/products?q=xyzw')).body, []);
+    assert.equal((await call('/food/products?q=a')).status, 400);
+    // Operadores de Mongo en la query string se rechazan en el DTO.
+    assert.equal((await call('/food/products?q[$ne]=x')).status, 400);
+  });
+});
+
+test('product detail and 404 for unknown ids', async () => {
+  await withApi(async (call) => {
+    const found = await call('/food/products/usda:1');
+    assert.equal(found.status, 200);
+    assert.equal(found.body.per100g.kcal, 365);
+    assert.equal((await call('/food/products/nope')).status, 404);
+  });
+});
+
+test('macros: grams, servings and the 100 g default; logging is opt-in and event sourced', async () => {
+  await withApi(async (call) => {
+    const preview = await call('/food/macros', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: [
+          { foodId: 'usda:1', grams: 50 },
+          { foodId: 'usda:1', serving: '1 Taza', quantity: 2 },
+          { foodId: 'usda:3' }
+        ]
+      })
+    });
+    assert.equal(preview.status, 200);
+    assert.deepEqual(preview.body.items.map((line: any) => line.grams), [50, 370, 100]);
+    assert.equal(preview.body.items[0].nutrients.kcal, 182.5);
+    assert.equal(preview.body.items[1].nutrients.kcal, 1350.5);
+    assert.equal(preview.body.totals.kcal, 182.5 + 1350.5 + 120);
+    assert.equal(preview.body.totals.fiber_g, null);
+    assert.ok(preview.body.items[2].missing.includes('carbs_g'));
+    assert.match(preview.body.warnings[0], /100 g/);
+    assert.equal(preview.body.mealId, undefined);
+
+    const badServing = await call('/food/macros', { method: 'POST', body: JSON.stringify({ items: [{ foodId: 'usda:1', serving: '1 plato' }] }) });
+    assert.equal(badServing.status, 422);
+    const unknown = await call('/food/macros', { method: 'POST', body: JSON.stringify({ items: [{ foodId: 'nope', grams: 10 }] }) });
+    assert.equal(unknown.status, 404);
+
+    const logged = await call('/food/macros', {
+      method: 'POST',
+      body: JSON.stringify({ items: [{ foodId: 'usda:3', grams: 150 }], log: true, label: 'Almuerzo' })
+    });
+    assert.ok(logged.body.mealId);
+    assert.ok(store.readAll().some((event) => event.type === 'food.meal_logged'));
+
+    const history = await call('/food/history');
+    assert.equal(history.status, 200);
+    assert.equal(history.body.meals.length, 1);
+    assert.equal(history.body.meals[0].label, 'Almuerzo');
+    assert.equal(history.body.meals[0].totals.kcal, 180);
+  });
+});
+
+test('library search translates ingredients (cached) and ranks by extra ingredients', async () => {
+  await withApi(async (call) => {
+    const before = writer.translations;
+    const found = await call('/food/library/recipes?ingredients=arroz,%20pollo');
+    assert.equal(found.status, 200);
+    assert.deepEqual(found.body.searchedIngredients, ['rice', 'chicken']);
+    assert.deepEqual(found.body.recipes.map((recipe: any) => recipe.id), [10]);
+
+    await call('/food/library/recipes?ingredients=pollo');
+    assert.equal(writer.translations, before + 1, 'pollo ya estaba traducido');
+
+    const detail = await call('/food/library/recipes/10');
+    assert.equal(detail.body.title, 'Chicken Fried Rice');
+    assert.equal((await call('/food/library/recipes/abc')).status, 404);
+  });
+});
+
+test('RAG generation: references go to the writer, the back computes macros and records the event', async () => {
+  await withApi(async (call) => {
+    const generated = await call('/food/recipes/generate', {
+      method: 'POST',
+      body: JSON.stringify({ ingredients: [{ name: 'arroz', foodId: 'usda:1', grams: 200 }, { name: 'pollo' }], servings: 2 })
+    });
+    assert.equal(generated.status, 201);
+    const { recipe, references, recipeInput } = generated.body;
+
+    // Contexto RAG: las recetas de referencia en inglés llegaron al modelo. Primero la que tiene
+    // todos los ingredientes; luego se relaja la búsqueda (solo "rice") para completar referencias.
+    assert.deepEqual(writer.contexts.at(-1)!.references.map((reference) => reference.id), [10, 11]);
+    assert.deepEqual(references.map((reference: any) => reference.id), [10, 11]);
+
+    // "Pollo" sin foodId se cruzó con el genérico crudo; lo que no existe no suma.
+    assert.equal(recipe.ingredients[1].foodId, 'usda:3');
+    assert.equal(recipe.ingredients[2].foodId, null);
+    assert.match(recipe.warnings[0], /Polvo de hadas/);
+    assert.equal(recipe.macros.total.kcal, 730 + 360);
+    assert.equal(recipe.macros.perServing.kcal, (730 + 360) / 2);
+    assert.deepEqual(recipeInput.ingredients[0], { name: 'Arroz', quantity: 200, unit: 'g' });
+
+    const history = await call('/food/history');
+    assert.equal(history.body.recipes[0].id, recipe.id);
+    const again = await call(`/food/recipes/${recipe.id}`);
+    assert.equal(again.body.recipe.title, 'Arroz con pollo');
+    assert.equal((await call('/food/recipes/nope')).status, 404);
+  });
+});
+
+test('Mongo down or not configured -> 503, never a crash', async () => {
+  catalog.available = false;
+  try {
+    await withApi(async (call) => {
+      const response = await call('/food/products?q=arroz');
+      assert.equal(response.status, 503);
+      assert.equal(response.body.code, 'FOOD_CATALOG_UNAVAILABLE');
+    });
+  } finally {
+    catalog.available = true;
+  }
+
+  const server = createServer().listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  try {
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const { token } = await (
+      await fetch(`${base}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'NoMongo', email: 'no-mongo@noshy.com', password: 'StrongPass1!' })
+      })
+    ).json();
+    const response = await fetch(`${base}/food/products?q=arroz`, { headers: { Authorization: `Bearer ${token}` } });
+    assert.equal(response.status, 503);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test('food endpoints require a token', async () => {
+  const server = createServer({ foodCatalog: catalog }).listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/food/products?q=arroz`);
+    assert.equal(response.status, 401);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

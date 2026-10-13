@@ -1,0 +1,36 @@
+meta {
+  name: Calculate macros
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/food/macros
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "items": [
+      { "foodId": "{{foodId}}", "grams": 150 },
+      { "foodId": "{{foodId}}", "serving": "100 g", "quantity": 2 },
+      { "foodId": "{{foodId}}" }
+    ]
+  }
+}
+
+tests {
+  test("responde 200 (404/503 sin catálogo)", function () {
+    expect([200, 404, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Cada item: { foodId, grams } o { foodId, serving: "<label de servings>", quantity }. Sin cantidad se usan 100 g (aviso en warnings).
+  Devuelve macros por línea, totales y warnings. No registra nada (vista previa).
+}

@@ -18,6 +18,9 @@ services:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     volumes:
       - ./src:/app/src:ro
+    extra_hosts:
+      # Para alcanzar servicios del propio server (ej. MongoDB del catálogo) desde el contenedor.
+      - "host.docker.internal:host-gateway"
     env_file:
       - path: .env
         required: false

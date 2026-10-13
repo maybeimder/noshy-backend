@@ -1,0 +1,31 @@
+meta {
+  name: History
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/food/history?limit=20
+  body: none
+  auth: bearer
+}
+
+params:query {
+  limit: 20
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200 con comidas y recetas", function () {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody().meals).to.be.an("array");
+    expect(res.getBody().recipes).to.be.an("array");
+  });
+}
+
+docs {
+  Event Sourcing: reproduce los eventos food.meal_logged y food.recipe_generated del usuario. Más recientes primero.
+}

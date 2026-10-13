@@ -1,0 +1,21 @@
+meta {
+  name: Library recipe detail
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/food/library/recipes/{{libraryRecipeId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200 (404/503 sin catálogo)", function () {
+    expect([200, 404, 503]).to.include(res.getStatus());
+  });
+}
