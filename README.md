@@ -33,6 +33,36 @@ Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (34 requ
 
 Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los tests de integración contra Postgres y RabbitMQ reales (usan schemas y exchanges temporales y los borran al terminar).
 
+## Despliegue con Docker (homelab / server)
+
+Todo corre en contenedores: Postgres, RabbitMQ, la API y el worker, con reinicio automático. Solo hace falta Docker y git (no Node ni pnpm).
+
+```bash
+git clone --recurse-submodules https://github.com/maybeimder/noshy.git
+cd noshy/backend
+cp .env.example .env    # define al menos JWT_SECRET (y OPENROUTER_API_KEY para el chef)
+docker compose up -d --build
+```
+
+- La API queda en `http://<ip-del-server>:3000` (cambia el puerto con `API_PORT`). Es lo único expuesto a la red.
+- Postgres (`5433`) y RabbitMQ (`5672`, panel `15672`) escuchan solo en `127.0.0.1` del server: el frontend no los necesita. Para ver el panel desde tu PC: `ssh -L 15672:localhost:15672 <server>` y abre http://localhost:15672.
+- La API aplica las migraciones al arrancar. Los datos viven en el volumen `noshy-postgres-data`.
+- Los contenedores corren con `NODE_ENV=production`: **sin `JWT_SECRET` la API no arranca** (a propósito).
+- CORS queda en `*` mientras no definas `CORS_ORIGIN`, así que el frontend puede llamar desde cualquier IP.
+
+| Tarea | Comando |
+| ----- | ------- |
+| Actualizar a lo último de `dev` | `git pull && docker compose up -d --build` |
+| Ver logs | `docker compose logs -f api worker` |
+| Estado | `docker compose ps` |
+| Reiniciar | `docker compose restart api worker` |
+| Apagar (conserva los datos) | `docker compose down` |
+| Respaldar la base | `docker exec noshy-postgres pg_dump -U noshy noshy > backup.sql` |
+
+Para desarrollo en tu máquina sigue usando `pnpm infra:up` (solo Postgres + RabbitMQ) y `pnpm dev`.
+
+Build de producción sin Docker: `pnpm build` y luego `pnpm start` / `pnpm start:worker` (compila a `dist/` como CommonJS).
+
 ## Arquitectura
 
 Orientada a eventos, con Transactional Outbox y Event Sourcing:

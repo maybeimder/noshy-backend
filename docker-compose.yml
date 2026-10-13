@@ -1,28 +1,21 @@
-services:
-  rabbitmq:
-    image: rabbitmq:4-management
-    container_name: noshy-rabbitmq
-    ports:
-      - "5672:5672"   # AMQP (la app)
-      - "15672:15672" # panel web: http://localhost:15672 (guest / guest)
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+# Desarrollo local:  pnpm infra:up          -> solo Postgres + RabbitMQ (la API corre con pnpm dev)
+# Server / homelab:  docker compose up -d   -> todo: Postgres, RabbitMQ, API y worker
+#
+# Postgres y RabbitMQ solo escuchan en 127.0.0.1 del host: la red local no los ve.
+# Lo único expuesto a la red es la API (puerto API_PORT, 3000 por defecto).
+# Credenciales: se pueden cambiar en .env (POSTGRES_PASSWORD, RABBITMQ_USER, RABBITMQ_PASSWORD).
 
+services:
   postgres:
     image: postgres:17-alpine
     container_name: noshy-postgres
+    restart: unless-stopped
     ports:
-      - "5433:5432" # 5433 en el host: evita chocar con un PostgreSQL local en 5432
+      - "127.0.0.1:5433:5432" # 5433 en el host: evita chocar con un PostgreSQL local en 5432
     environment:
       POSTGRES_DB: noshy
       POSTGRES_USER: noshy
-      POSTGRES_PASSWORD: noshy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-noshy}
     volumes:
       - noshy-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -30,6 +23,66 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: noshy-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5672:5672"   # AMQP
+      - "127.0.0.1:15672:15672" # panel web, solo desde el propio equipo: http://localhost:15672
+    environment:
+      # No se usa "guest": RabbitMQ solo lo deja conectar desde localhost y la API corre en otro contenedor.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-noshy}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-noshy}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    image: noshy-backend
+    container_name: noshy-api
+    restart: unless-stopped
+    command: ["node", "dist/entrypoints/api.js"]
+    ports:
+      - "${API_PORT:-3000}:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Dentro de la red de Docker los servicios se llaman por su nombre (postgres, rabbitmq).
+      PORT: "3000"
+      DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  worker:
+    image: noshy-backend
+    container_name: noshy-worker
+    restart: unless-stopped
+    command: ["node", "dist/entrypoints/worker.js"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
+    depends_on:
+      api:
+        condition: service_healthy # la API crea la topología de RabbitMQ y aplica las migraciones
 
 volumes:
   noshy-postgres-data:

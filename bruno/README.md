@@ -32,7 +32,9 @@ pnpm install
 pnpm infra:up
 ```
 
-Postgres queda en `localhost:5433` y RabbitMQ en `localhost:5672` (panel en http://localhost:15672, `guest` / `guest`).
+Postgres queda en `localhost:5433` y RabbitMQ en `localhost:5672` (panel en http://localhost:15672, `noshy` / `noshy`). Ambos escuchan solo en `127.0.0.1`.
+
+> ¿Prefieres no correr la API con Node? `docker compose up -d` levanta **todo** en contenedores (ver [Despliegue con Docker](../README.md#despliegue-con-docker-homelab--server)) y te saltas los pasos 3 y 4, salvo crear el `.env`.
 
 **3. Configurar las variables** — copia el ejemplo y complétalo:
 
@@ -44,7 +46,7 @@ Descomenta y rellena en `backend/.env`:
 
 ```dotenv
 DATABASE_URL=postgres://noshy:noshy@localhost:5433/noshy
-RABBITMQ_URL=amqp://guest:guest@localhost:5672
+RABBITMQ_URL=amqp://noshy:noshy@localhost:5672
 JWT_SECRET=<genera uno: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))">
 OPENROUTER_API_KEY=sk-or-...    # opcional: sin ella el chef responde 503
 ```

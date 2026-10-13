@@ -1,6 +1,6 @@
 // Prueba de punta a punta contra un RabbitMQ real. Se salta si no hay RABBITMQ_URL.
 //   pnpm rabbit:up
-//   $env:RABBITMQ_URL='amqp://guest:guest@localhost:5672'; pnpm exec tsx --test src/infrastructure/event-bus/rabbitmq/rabbitmq.live.test.ts
+//   $env:RABBITMQ_URL='amqp://noshy:noshy@localhost:5672'; pnpm exec tsx --test src/infrastructure/event-bus/rabbitmq/rabbitmq.live.test.ts
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
