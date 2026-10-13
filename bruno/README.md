@@ -1,6 +1,6 @@
 # Colección de Bruno — Noshy API
 
-34 requests en orden que recorren el flujo MVP completo: registro → plan → inventario → receta → comunidad → lista de compras → chef (IA) → feedback → cierre de sesión → limpieza.
+43 requests en orden que recorren el flujo MVP completo: registro → plan → inventario → receta → comunidad → lista de compras → chef (IA) → feedback → cierre de sesión → limpieza → alimentos (catálogo Mongo, macros, biblioteca de recetas y receta generada con IA).
 
 - El **token JWT** y los ids (`recipeId`, `itemId`, `sessionId`) se guardan solos en variables al ejecutar cada request.
 - Cada corrida registra un usuario nuevo (`ana.<timestamp>@noshy.com`), así que se puede repetir sin errores.
@@ -49,6 +49,7 @@ DATABASE_URL=postgres://noshy:noshy@localhost:5433/noshy
 RABBITMQ_URL=amqp://noshy:noshy@localhost:5672
 JWT_SECRET=<genera uno: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))">
 OPENROUTER_API_KEY=sk-or-...    # opcional: sin ella el chef responde 503
+MONGO_URL=mongodb://app:<clave>@<ip-del-server>:27017/food?authSource=food   # opcional: sin ella /food responde 503
 ```
 
 La API, el worker y `pnpm db:migrate` leen `.env` solos. `.env` está en `.gitignore`: **nunca lo subas** (contiene tus secretos). Lo que definas en la terminal (`$env:X=...`) tiene prioridad sobre el archivo.
@@ -66,7 +67,7 @@ La API debe imprimir `Variables cargadas desde .env`, `Postgres conectado`, `Age
 
 1. Bruno → **Open Collection** → selecciona la carpeta `backend/bruno`.
 2. Arriba a la derecha, elige el entorno **local**.
-3. Click derecho sobre la colección → **Run** → **Run Collection**. Deberías ver 34/34 en verde.
+3. Click derecho sobre la colección → **Run** → **Run Collection**. Deberías ver 43/43 en verde.
 
 También puedes ejecutar las requests una por una en orden (empieza por `01 Auth/Register`, que guarda el token).
 
@@ -95,6 +96,8 @@ En el panel de RabbitMQ (*Queues* → `noshy.events.observers`) verás pasar los
 | Todo devuelve **401** tras reiniciar la API | Sin `JWT_SECRET` fijo, cada arranque usa un secreto nuevo. Define `JWT_SECRET` o vuelve a correr `01 Auth/Register`. |
 | La API no conecta a Postgres | Revisa que `docker ps` muestre `noshy-postgres` y que uses el puerto **5433** (el 5432 suele estar ocupado por un Postgres local). |
 | Los datos desaparecen al reiniciar | La API corre sin `DATABASE_URL` (modo en memoria). |
+| `11 Food` devuelve **503** | La API corre sin `MONGO_URL`, o Mongo no responde (la API reintenta sola y lo avisa en el log). Los tests lo aceptan. |
+| `Generate recipe (AI)` devuelve **503** con Mongo arriba | Falta `OPENROUTER_API_KEY` o el modelo gratuito no respondió. |
 
 ## Apagar todo
 

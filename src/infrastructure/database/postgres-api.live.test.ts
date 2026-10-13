@@ -145,6 +145,7 @@ test('transactional outbox: if writing the event fails, the state change is roll
   configurePersistence({
     ...persistence,
     events: {
+      ...persistence.events,
       append: async (events, tx) => {
         await persistence.events.append(events, tx); // se escribe...
         throw new Error('el event store se cayó'); // ...y falla después, dentro de la misma transacción

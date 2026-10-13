@@ -25,7 +25,10 @@ export function createInMemoryPersistence(): Persistence {
   return {
     uow: new InMemoryUnitOfWork(),
     // Se resuelve en cada llamada para respetar setEventStore() (tests).
-    events: { append: async (events) => void getEventStore().append(events) },
+    events: {
+      append: async (events) => void getEventStore().append(events),
+      readStream: async (streamId) => getEventStore().readStream(streamId)
+    },
     users: new InMemoryUserRepository(),
     plans: new InMemoryPlanRepository(),
     inventory: new InMemoryInventoryRepository(),

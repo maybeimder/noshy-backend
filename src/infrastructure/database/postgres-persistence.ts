@@ -19,7 +19,10 @@ import {
 export function createPostgresPersistence(pool: Pool, eventStore = new PostgresEventStore(pool)): Persistence {
   return {
     uow: new PostgresUnitOfWork(pool),
-    events: { append: async (events, tx) => void (await eventStore.append(events, tx as DbClient | undefined)) },
+    events: {
+      append: async (events, tx) => void (await eventStore.append(events, tx as DbClient | undefined)),
+      readStream: (streamId) => eventStore.readStream(streamId)
+    },
     users: new PostgresUserRepository(pool),
     plans: new PostgresPlanRepository(pool),
     inventory: new PostgresInventoryRepository(pool),

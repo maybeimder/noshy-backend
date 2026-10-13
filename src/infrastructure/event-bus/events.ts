@@ -2,6 +2,7 @@
 import type { EventType } from '../../core/events/domain-event';
 import { ChefMessageRecordedEvent, ChefSessionClosedEvent, ChefSessionOpenedEvent, ChefSessionRecoveryRequiredEvent } from '../../modules/chef-sessions/events/chef-session.events';
 import { FeedbackRecordedEvent } from '../../modules/feedback/events/feedback.events';
+import { FoodMealLoggedEvent, FoodRecipeGeneratedEvent } from '../../modules/food/events/food.events';
 import { InventoryItemAddedEvent, InventoryItemRemovedEvent, InventoryItemUpdatedEvent } from '../../modules/inventory/events/inventory.events';
 import { NutritionPlanCreatedEvent, NutritionPlanUpdatedEvent } from '../../modules/plans/events/plan.events';
 import { RecipeCreatedEvent, RecipeDeletedEvent, RecipePublishedEvent, RecipeUnpublishedEvent, RecipeUpdatedEvent } from '../../modules/recipes/events/recipe.events';
@@ -27,5 +28,7 @@ export const domainEventTypes: EventType[] = [
   ChefSessionClosedEvent,
   ChefSessionRecoveryRequiredEvent,
   FeedbackRecordedEvent,
-  ShoppingListGeneratedEvent
+  ShoppingListGeneratedEvent,
+  FoodRecipeGeneratedEvent,
+  FoodMealLoggedEvent
 ];

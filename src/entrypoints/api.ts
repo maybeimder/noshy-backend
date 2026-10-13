@@ -3,6 +3,9 @@
 import type { ProcessedMessageStore } from '../core/commands/command-bus';
 import type { Outbox } from '../core/events/event-store';
 import { DEFAULT_OPENROUTER_MODELS, OpenRouterChefAgent } from '../infrastructure/ai/openrouter-chef-agent';
+import { OpenRouterRecipeWriter } from '../infrastructure/ai/openrouter-recipe-writer';
+import { MongoFoodCatalog } from '../infrastructure/database/mongo/mongo-food-catalog';
+import { checkFoodIndexes, MongoConnection } from '../infrastructure/database/mongo/mongo.connection';
 import { getEnv } from '../infrastructure/config/env';
 import { loadEnvFile } from '../infrastructure/config/load-env-file';
 import { createPool } from '../infrastructure/database/db.connection';
@@ -57,8 +60,26 @@ async function main() {
       : 'Agente chef deshabilitado: define OPENROUTER_API_KEY para activarlo.'
   );
 
+  // Catálogo de alimentos (Mongo, solo lectura). No bloquea el arranque: si Mongo no responde se reintenta
+  // en segundo plano y mientras tanto /food responde 503.
+  let foodCatalog: MongoFoodCatalog | undefined;
+  if (environment.mongoUrl) {
+    const mongo = new MongoConnection(environment.mongoUrl);
+    foodCatalog = new MongoFoodCatalog(mongo.db());
+    void mongo.connectWithRetry(async () => {
+      console.log('MongoDB conectado: catálogo de alimentos y recetas (solo lectura).');
+      for (const warning of await checkFoodIndexes(mongo.db()).catch(() => [])) console.warn(warning);
+    });
+    shutdown.push(() => mongo.close());
+  } else {
+    console.log('Catálogo de alimentos deshabilitado: define MONGO_URL para activarlo.');
+  }
+  const recipeWriter = environment.openRouterApiKey
+    ? new OpenRouterRecipeWriter({ apiKey: environment.openRouterApiKey, models: environment.openRouterModels })
+    : undefined;
+
   // Un solo bus para HTTP y RabbitMQ: los dos disparan los mismos handlers sobre el mismo estado.
-  const commandBus = createCommandBus({ processedMessages, chefAgent });
+  const commandBus = createCommandBus({ processedMessages, chefAgent, foodCatalog, recipeWriter });
 
   if (environment.rabbitmqUrl) {
     const rabbit = await RabbitMqConnection.connect(environment.rabbitmqUrl);

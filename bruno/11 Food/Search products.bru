@@ -1,0 +1,38 @@
+meta {
+  name: Search products
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/food/products?q=arroz blanco&limit=10
+  body: none
+  auth: bearer
+}
+
+params:query {
+  q: arroz blanco
+  limit: 10
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+script:post-response {
+  if (res.getStatus() === 200 && res.getBody().length > 0) {
+    bru.setVar("foodId", res.getBody()[0].id);
+  }
+}
+
+tests {
+  test("responde 200 (o 503 sin MONGO_URL)", function () {
+    expect([200, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Dropdown / autocompletado sobre products_slim. Todas las palabras deben aparecer; el genérico sale primero.
+  Respuesta: [{ id, name, brand, state, isGeneric, image, kcalPer100g, baseServing: { label, grams } }].
+  Guarda el primer resultado en {{foodId}}.
+}

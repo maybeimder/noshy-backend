@@ -1,0 +1,38 @@
+meta {
+  name: Search library recipes
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/food/library/recipes?ingredients=pollo,arroz,cebolla&maxIngredients=10
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ingredients: pollo,arroz,cebolla
+  maxIngredients: 10
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+script:post-response {
+  if (res.getStatus() === 200 && res.getBody().recipes.length > 0) {
+    bru.setVar("libraryRecipeId", res.getBody().recipes[0].id);
+  }
+}
+
+tests {
+  test("responde 200 (o 503 sin MONGO_URL)", function () {
+    expect([200, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Biblioteca RecipeNLG (inglés, solo referencia). Los ingredientes en español se traducen con OpenRouter
+  (searchedIngredients muestra los términos usados; translated=false si no hubo modelo).
+  Ordena por ingredientes extra (los que la receta pide y no buscaste).
+}

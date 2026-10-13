@@ -14,7 +14,9 @@ const environmentSchema = z.object({
   // Opcional: sin key el agente chef no está disponible (POST /chef/sessions/:id/respond -> 503).
   OPENROUTER_API_KEY: z.string().trim().min(1).optional(),
   // Opcional: modelos separados por coma; el primero es el preferido y los demás son respaldo.
-  OPENROUTER_MODEL: z.string().trim().min(1).optional()
+  OPENROUTER_MODEL: z.string().trim().min(1).optional(),
+  // Opcional: catálogo de alimentos y recetas (Mongo de solo lectura). Sin él, /food responde 503.
+  MONGO_URL: z.string().trim().regex(/^mongodb(\+srv)?:\/\//i, 'MONGO_URL debe empezar con mongodb:// o mongodb+srv://').optional()
 });
 
 export type EnvironmentConfig = {
@@ -27,6 +29,7 @@ export type EnvironmentConfig = {
   jwtExpiresIn?: string;
   openRouterApiKey?: string;
   openRouterModels?: string[];
+  mongoUrl?: string;
 };
 
 export function getEnv(environment: NodeJS.ProcessEnv = process.env): EnvironmentConfig {
@@ -48,6 +51,7 @@ export function getEnv(environment: NodeJS.ProcessEnv = process.env): Environmen
     ...(parsed.data.OPENROUTER_API_KEY ? { openRouterApiKey: parsed.data.OPENROUTER_API_KEY } : {}),
     ...(parsed.data.OPENROUTER_MODEL
       ? { openRouterModels: parsed.data.OPENROUTER_MODEL.split(',').map((model) => model.trim()).filter(Boolean) }
-      : {})
+      : {}),
+    ...(parsed.data.MONGO_URL ? { mongoUrl: parsed.data.MONGO_URL } : {})
   };
 }
