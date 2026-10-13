@@ -2,6 +2,7 @@
 // reproduciendo los eventos food.* del stream del usuario en el Event Store.
 import type { StoredEvent } from '../../core/events/event-store';
 import { FoodMealLoggedEvent, FoodRecipeGeneratedEvent } from './events/food.events';
+import { inferRecipeTags } from './food-tags';
 import type { GeneratedRecipe, Nutrients } from './food.model';
 
 export type LoggedMeal = {
@@ -40,8 +41,20 @@ export class FoodHistoryProjection {
       });
     } else if (event.type === FoodRecipeGeneratedEvent.eventName) {
       const payload = event.payload as FoodRecipeGeneratedEvent['payload'];
-      this.recipes.set(payload.recipe.id, {
-        recipe: payload.recipe,
+      const { recipe } = payload;
+      this.recipes.set(recipe.id, {
+        // Los eventos anteriores a los tags no los traen: se deducen al reproducirlos (sin datos del catálogo).
+        recipe: recipe.tags
+          ? recipe
+          : {
+              ...recipe,
+              tags: inferRecipeTags({
+                title: recipe.title,
+                ingredients: recipe.ingredients.map((ingredient) => ingredient.name),
+                steps: recipe.steps.length,
+                nutrientsPerServing: recipe.macros.perServing
+              })
+            },
         referenceRecipeIds: payload.referenceRecipeIds,
         generatedAt: event.occurredAt
       });
@@ -59,6 +72,7 @@ export class FoodHistoryProjection {
           id: recipe.id,
           title: recipe.title,
           servings: recipe.servings,
+          tags: recipe.tags,
           kcalTotal: recipe.macros.total.kcal ?? null,
           generatedAt
         }))

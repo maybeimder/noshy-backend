@@ -42,6 +42,7 @@ docs {
   RAG: traduce los ingredientes, trae recetas de referencia de recipes_raw, el modelo de OpenRouter redacta la receta en español
   y el back calcula los macros cruzando cada ingrediente con products_slim (el modelo NO calcula macros).
   Si mandas "foodId" (del dropdown) se usa ese producto; si no, se busca por nombre (genérico crudo primero).
-  Respuesta: { recipe, references, recipeInput }. recipeInput se puede mandar tal cual a POST /recipes para guardarla.
+  Respuesta: { recipe (con tags y macros), references, recipeInput }.
+  Si un ingrediente no tiene un equivalente fiable en el catálogo (ej. cebolla), no suma a los macros y aparece en warnings. recipeInput se puede mandar tal cual a POST /recipes para guardarla.
   Registra el evento food.recipe_generated. Tarda ~15 s con los modelos gratuitos.
 }

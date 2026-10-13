@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import { InMemoryEventStore } from '../../core/events/in-memory-event-store';
 import { setEventStore } from '../../infrastructure/event-bus/event-bus';
 import { createServer } from '../../infrastructure/http/server';
-import { normalizeSearchText, searchTerms, type FoodCatalogPort } from './food-catalog.port';
-import type { FoodNutritionFacts, FoodProduct, LibraryRecipe } from './food.model';
+import { normalizeSearchText, searchTerms, type FoodCatalogPort, type LibraryRecipeData } from './food-catalog.port';
+import type { FoodCandidate, FoodNutritionFacts, FoodProduct } from './food.model';
 import type { RecipeWriterContext, RecipeWriterPort } from './recipe-writer.port';
 import { escapeRegex } from '../../infrastructure/database/mongo/mongo-food-catalog';
 
@@ -24,6 +24,10 @@ const product = (overrides: Partial<FakeProduct> & Pick<FoodProduct, 'id' | 'nam
   dietTags: [],
   labels: [],
   categories: [],
+  foodGroups: [],
+  nutrientLevels: [],
+  additives: [],
+  stores: [],
   image: null,
   popularity: 1,
   ...overrides
@@ -48,10 +52,15 @@ const PRODUCTS = [
     per100g: { kcal: 130, protein_g: 2.7, carbs_g: 28, fat_g: 0.3 }
   }),
   product({ id: '7701', name: 'Arroz Diana', brand: 'diana', isGeneric: false, popularity: 50, per100g: { kcal: 360 } }),
-  product({ id: 'usda:3', name: 'Pechuga de pollo (cruda)', state: 'raw', popularity: 1_000_000, per100g: { kcal: 120, protein_g: 22.5, fat_g: 2.6 } })
+  product({ id: 'usda:3', name: 'Pechuga de pollo (cruda)', state: 'raw', popularity: 10, per100g: { kcal: 120, protein_g: 22.5, fat_g: 2.6 } }),
+  // Casos reales del catálogo: lo más popular para "pollo" y "pimienta" eran procesados.
+  product({ id: 'off:salchicha', name: 'Salchichas viena de pollo', brand: 'Blony', isGeneric: false, popularity: 70, foodGroups: ['processed-meat'], per100g: { kcal: 250 } }),
+  product({ id: 'off:papas', name: 'Margarita Pollo', brand: 'Frito Lay', isGeneric: false, popularity: 40, foodGroups: ['salty-snacks'], per100g: { kcal: 520 } }),
+  product({ id: 'off:mani', name: 'Maní Sabor Limón Pimienta', brand: 'Manitoba', isGeneric: false, popularity: 30, foodGroups: ['nuts', 'salty-snacks'], per100g: { kcal: 600 } }),
+  product({ id: 'off:pimienta', name: 'Pimienta negra molida', brand: 'Comarrico', isGeneric: false, popularity: 1, per100g: { kcal: 250 } })
 ];
 
-const LIBRARY: LibraryRecipe[] = [
+const LIBRARY: LibraryRecipeData[] = [
   { id: 10, title: 'Chicken Fried Rice', ingredients: ['2 c. rice', '1 lb. chicken'], directions: ['Cook rice.', 'Fry with chicken.'], ner: ['rice', 'chicken', 'egg'], nIngredients: 3 },
   { id: 11, title: 'Plain Rice', ingredients: ['1 c. rice'], directions: ['Boil.'], ner: ['rice', 'water'], nIngredients: 2 }
 ];
@@ -62,11 +71,11 @@ class FakeCatalog implements FoodCatalogPort {
   private check() {
     if (!this.available) throw new Error('Mongo caído');
   }
-  async searchProducts(terms: string[], limit: number) {
+  async findProductCandidates(terms: string[], max: number): Promise<FoodCandidate[]> {
     this.check();
     return PRODUCTS.filter((item) => terms.every((term) => new RegExp(`\\b${escapeRegex(term)}`).test(normalizeSearchText(`${item.name} ${item.brand}`))))
       .sort((left, right) => right.popularity - left.popularity)
-      .slice(0, limit)
+      .slice(0, max)
       .map((item) => ({
         id: item.id,
         name: item.name,
@@ -75,7 +84,11 @@ class FakeCatalog implements FoodCatalogPort {
         isGeneric: item.isGeneric,
         image: null,
         kcalPer100g: item.per100g.kcal ?? null,
-        baseServing: item.servings[0]
+        baseServing: item.servings[0],
+        foodGroups: item.foodGroups,
+        nova: null,
+        popularity: item.popularity,
+        completeness: 0.8
       }));
   }
   async getProduct(id: string) {
@@ -116,7 +129,8 @@ class FakeWriter implements RecipeWriterPort {
         { name: 'Pollo', grams: 300 },
         { name: 'Polvo de hadas', grams: 5 }
       ],
-      steps: ['Cocina el arroz.', 'Agrega el pollo.']
+      steps: ['Cocina el arroz.', 'Agrega el pollo.'],
+      mealType: 'almuerzo' as const
     };
   }
 }
@@ -147,19 +161,32 @@ async function withApi(run: (call: (path: string, init?: RequestInit) => Promise
   }
 }
 
-test('search terms are normalized like products_slim.search and regex input is escaped', () => {
+test('search terms are normalized like products_slim.search, without connectors, and regex input is escaped', () => {
   assert.deepEqual(searchTerms('  Árroz BLANCO, arroz '), ['arroz', 'blanco']);
+  assert.deepEqual(searchTerms('aceite de oliva'), ['aceite', 'oliva']);
   assert.deepEqual(searchTerms('...'), []);
   assert.equal(escapeRegex('a.*(b)'), 'a\\.\\*\\(b\\)');
 });
 
-test('dropdown search: generic first, every word required, state is always shown', async () => {
+test('dropdown search: ranked by relevance, not popularity; state is always shown', async () => {
   await withApi(async (call) => {
     const all = await call('/food/products?q=arroz');
     assert.equal(all.status, 200);
-    assert.deepEqual(all.body.map((item: any) => item.id), ['usda:1', 'usda:2', '7701']);
-    assert.deepEqual(all.body[0].baseServing, { label: '100 g', grams: 100 });
-    assert.equal(all.body[1].state, 'cooked');
+    assert.deepEqual(new Set(all.body.map((item: any) => item.id)), new Set(['usda:1', 'usda:2', '7701']));
+    assert.ok(all.body.every((item: any) => item.exactMatch));
+    assert.equal(all.body.find((item: any) => item.id === 'usda:2').state, 'cooked');
+
+    // Las salchichas y las papas "sabor pollo" son más populares, pero la pechuga ES pollo.
+    const chicken = await call('/food/products?q=pollo');
+    assert.equal(chicken.body[0].id, 'usda:3');
+    assert.deepEqual(
+      chicken.body.filter((item: any) => !item.exactMatch).map((item: any) => item.id).sort(),
+      ['off:papas', 'off:salchicha']
+    );
+
+    const pepper = await call('/food/products?q=pimienta');
+    assert.deepEqual(pepper.body.map((item: any) => item.id), ['off:pimienta', 'off:mani']);
+    assert.equal(pepper.body[1].exactMatch, false);
 
     const narrowed = await call('/food/products?q=arroz%20cocido&limit=5');
     assert.deepEqual(narrowed.body.map((item: any) => item.id), ['usda:2']);
@@ -229,12 +256,16 @@ test('library search translates ingredients (cached) and ranks by extra ingredie
     assert.equal(found.status, 200);
     assert.deepEqual(found.body.searchedIngredients, ['rice', 'chicken']);
     assert.deepEqual(found.body.recipes.map((recipe: any) => recipe.id), [10]);
+    assert.deepEqual(found.body.recipes[0].tags.proteins, ['pollo', 'huevo']);
 
     await call('/food/library/recipes?ingredients=pollo');
     assert.equal(writer.translations, before + 1, 'pollo ya estaba traducido');
 
     const detail = await call('/food/library/recipes/10');
     assert.equal(detail.body.title, 'Chicken Fried Rice');
+    assert.deepEqual(detail.body.tags.allergens, ['huevo']);
+    assert.deepEqual(detail.body.tags.diet, []);
+    assert.deepEqual(detail.body.tags.effort, ['pocos ingredientes', 'rápida']);
     assert.equal((await call('/food/library/recipes/abc')).status, 404);
   });
 });
@@ -253,13 +284,19 @@ test('RAG generation: references go to the writer, the back computes macros and 
     assert.deepEqual(writer.contexts.at(-1)!.references.map((reference) => reference.id), [10, 11]);
     assert.deepEqual(references.map((reference: any) => reference.id), [10, 11]);
 
-    // "Pollo" sin foodId se cruzó con el genérico crudo; lo que no existe no suma.
+    // "Pollo" sin foodId se cruzó con la pechuga (no con las salchichas, más populares); lo que no existe no suma.
     assert.equal(recipe.ingredients[1].foodId, 'usda:3');
     assert.equal(recipe.ingredients[2].foodId, null);
     assert.match(recipe.warnings[0], /Polvo de hadas/);
     assert.equal(recipe.macros.total.kcal, 730 + 360);
     assert.equal(recipe.macros.perServing.kcal, (730 + 360) / 2);
     assert.deepEqual(recipeInput.ingredients[0], { name: 'Arroz', quantity: 200, unit: 'g' });
+
+    // Tags: deducidos de ingredientes, tipo de comida del modelo y macros por porción.
+    assert.deepEqual(recipe.tags.proteins, ['pollo']);
+    assert.deepEqual(recipe.tags.mealTypes, ['almuerzo']);
+    assert.ok(recipe.tags.nutrition.includes('alto en proteína'));
+    assert.deepEqual(recipe.tags.diet, []);
 
     const history = await call('/food/history');
     assert.equal(history.body.recipes[0].id, recipe.id);

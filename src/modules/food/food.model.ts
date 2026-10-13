@@ -1,4 +1,7 @@
 // Catálogo de alimentos (products_slim) y biblioteca de recetas de referencia (recipes_raw), ambos de solo lectura.
+import type { RecipeTags } from './food-tags';
+
+export type { RecipeTags } from './food-tags';
 
 export const NUTRIENT_KEYS = [
   'kcal',
@@ -36,6 +39,16 @@ export type FoodSearchItem = {
   image: string | null;
   kcalPer100g: number | null;
   baseServing: { label: string; grams: number };
+  // true: el producto ES el alimento buscado (no un sabor ni un derivado procesado).
+  exactMatch: boolean;
+};
+
+// Candidato del catálogo con las señales que usa el ranking de relevancia (food-ranking.ts).
+export type FoodCandidate = Omit<FoodSearchItem, 'exactMatch'> & {
+  foodGroups: string[];
+  nova: number | null;
+  popularity: number;
+  completeness: number;
 };
 
 export type FoodProduct = {
@@ -56,12 +69,17 @@ export type FoodProduct = {
   dietTags: string[];
   labels: string[];
   categories: string[];
+  foodGroups: string[];
+  // Ej. "fat-in-high-quantity", "salt-in-moderate-quantity" (semáforo de Open Food Facts).
+  nutrientLevels: string[];
+  additives: string[];
+  stores: string[];
   image: string | null;
   completeness?: number;
 };
 
-// Lo mínimo para calcular macros.
-export type FoodNutritionFacts = Pick<FoodProduct, 'id' | 'name' | 'brand' | 'state' | 'per100g' | 'servings'>;
+// Lo mínimo para calcular macros (y deducir alérgenos y dieta de una receta).
+export type FoodNutritionFacts = Pick<FoodProduct, 'id' | 'name' | 'brand' | 'state' | 'per100g' | 'servings' | 'allergens' | 'foodGroups'>;
 
 export type LibraryRecipeSummary = {
   id: number;
@@ -71,6 +89,7 @@ export type LibraryRecipeSummary = {
   // Ingredientes que la receta pide y el usuario no buscó.
   extraIngredients: number;
   url?: string;
+  tags: RecipeTags;
 };
 
 export type LibraryRecipe = {
@@ -82,6 +101,7 @@ export type LibraryRecipe = {
   nIngredients: number;
   source?: string;
   url?: string;
+  tags: RecipeTags;
 };
 
 export type MacroLine = {
@@ -116,6 +136,7 @@ export type GeneratedRecipe = {
   ingredients: GeneratedRecipeIngredient[];
   steps: string[];
   notes?: string;
+  tags: RecipeTags;
   macros: {
     total: Nutrients;
     perServing: Nutrients;
