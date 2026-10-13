@@ -1,0 +1,29 @@
+meta {
+  name: Browse library (next page)
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/food/library/browse?cursor={{libraryCursor}}
+  body: none
+  auth: bearer
+}
+
+params:query {
+  cursor: {{libraryCursor}}
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200 (400 si no hubo cursor, 503 sin Mongo)", function () {
+    expect([200, 400, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  Siguiente página del recorrido anterior, usando el nextCursor guardado en {{libraryCursor}}.
+}

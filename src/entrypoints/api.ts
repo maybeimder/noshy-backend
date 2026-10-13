@@ -66,9 +66,11 @@ async function main() {
   if (environment.mongoUrl) {
     const mongo = new MongoConnection(environment.mongoUrl);
     foodCatalog = new MongoFoodCatalog(mongo.db());
+    const catalog = foodCatalog;
     void mongo.connectWithRetry(async () => {
       console.log('MongoDB conectado: catálogo de alimentos y recetas (solo lectura).');
       for (const warning of await checkFoodIndexes(mongo.db()).catch(() => [])) console.warn(warning);
+      await catalog.warmUp().catch((error) => console.warn('No se pudo precalcular la paginación de recetas:', error instanceof Error ? error.message : error));
     });
     shutdown.push(() => mongo.close());
   } else {

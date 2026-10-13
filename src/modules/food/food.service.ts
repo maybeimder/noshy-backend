@@ -1,9 +1,17 @@
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { db } from '../../infrastructure/persistence/persistence';
 import { getActiveNutritionPlan } from '../plans/plan.service';
 import { FoodMealLoggedEvent, FoodRecipeGeneratedEvent } from './events/food.events';
 import { FoodHistoryProjection } from './food-history.projection';
-import { normalizeSearchText, searchTerms, type FoodCatalogPort, type LibraryRecipeData, type LibraryRecipeSummaryData } from './food-catalog.port';
+import {
+  normalizeSearchText,
+  searchTerms,
+  type FoodCatalogPort,
+  type LibraryRecipeCardData,
+  type LibraryRecipeData,
+  type LibraryRecipeSummaryData
+} from './food-catalog.port';
 import { rankFoods, type RankedFood } from './food-ranking';
 import { inferRecipeTags } from './food-tags';
 import {
@@ -13,13 +21,21 @@ import {
   type GeneratedRecipe,
   type GeneratedRecipeIngredient,
   type LibraryRecipe,
+  type LibraryRecipeCard,
   type LibraryRecipeSummary,
   type MacroLine,
   type MacroSummary,
   type NutrientKey,
   type Nutrients
 } from './food.model';
-import type { FoodSearchInput, LibrarySearchInput, MacroCalculationInput, RecipeGenerationInput } from './http/food.dto';
+import {
+  LIBRARY_SORTS,
+  type FoodSearchInput,
+  type LibraryBrowseInput,
+  type LibrarySearchInput,
+  type MacroCalculationInput,
+  type RecipeGenerationInput
+} from './http/food.dto';
 import type { RecipeWriterPort } from './recipe-writer.port';
 
 // Dependencias externas del módulo, inyectadas al armar el CommandBus (igual que el agente chef).
@@ -222,7 +238,85 @@ export async function searchLibraryRecipes(deps: FoodDependencies, input: Librar
 }
 
 function withTags(recipe: LibraryRecipeData): LibraryRecipe {
-  return { ...recipe, tags: inferRecipeTags({ title: recipe.title, ingredients: recipe.ner, steps: recipe.directions.length }) };
+  return { ...recipe, image: null, tags: inferRecipeTags({ title: recipe.title, ingredients: recipe.ner, steps: recipe.directions.length }) };
+}
+
+// ---------- Biblioteca paginada ----------
+
+// Cursor opaco para el front. Guarda el orden y la posición (último _id); en `random`, además el _id de inicio
+// y si ya se dio la vuelta al final de la colección. Así las páginas siguientes son estables y sin repetidos.
+const cursorSchema = z.object({
+  sort: z.enum(LIBRARY_SORTS),
+  after: z.number().int().min(0),
+  start: z.number().int().min(0).optional(),
+  wrapped: z.boolean().optional()
+});
+type LibraryCursor = z.infer<typeof cursorSchema>;
+
+const encodeCursor = (cursor: LibraryCursor) => Buffer.from(JSON.stringify(cursor)).toString('base64url');
+
+function decodeCursor(value: string): LibraryCursor | null {
+  try {
+    const parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+const toCard = (recipe: LibraryRecipeCardData): LibraryRecipeCard => ({
+  ...recipe,
+  image: null,
+  tags: inferRecipeTags({ title: recipe.title, ingredients: recipe.ner })
+});
+
+// random: arranca en un _id al azar y avanza en orden; al llegar al final sigue desde 0 hasta el inicio.
+// recent / oldest: _id descendente / ascendente. El dataset no tiene fechas: "recent" son los últimos en
+// agregarse al dataset (Recipes1M), no recetas más nuevas.
+export async function browseLibraryRecipes(catalog: FoodCatalogPort, input: LibraryBrowseInput) {
+  const cursor = input.cursor ? decodeCursor(input.cursor) : undefined;
+  if (cursor === null) return { ok: false, code: 'INVALID_CURSOR', message: 'El cursor de paginación no es válido.' } as const;
+  const sort = cursor?.sort ?? input.sort;
+  const filters = {
+    limit: input.limit,
+    ...(input.source ? { source: input.source } : {}),
+    ...(input.maxIngredients ? { maxIngredients: input.maxIngredients } : {})
+  };
+
+  const page = await fromCatalog(async () => {
+    if (sort === 'recent') {
+      const items = await catalog.listLibraryRecipes({ ...filters, idRange: cursor ? { lt: cursor.after } : {}, order: 'desc' });
+      return { items, next: items.length === input.limit ? { sort, after: items.at(-1)!.id } : null };
+    }
+    if (sort === 'oldest') {
+      const items = await catalog.listLibraryRecipes({ ...filters, idRange: cursor ? { gt: cursor.after } : {}, order: 'asc' });
+      return { items, next: items.length === input.limit ? { sort, after: items.at(-1)!.id } : null };
+    }
+
+    const start = cursor?.start ?? randomInt(0, (await catalog.maxLibraryRecipeId()) + 1);
+    let wrapped = cursor?.wrapped ?? false;
+    const items = wrapped
+      ? await catalog.listLibraryRecipes({ ...filters, idRange: { gt: cursor!.after, lt: start }, order: 'asc' })
+      : await catalog.listLibraryRecipes({ ...filters, idRange: cursor ? { gt: cursor.after } : { gte: start }, order: 'asc' });
+    if (!wrapped && items.length < input.limit) {
+      // Se llegó al final de la colección: se completa la página desde el principio.
+      wrapped = true;
+      items.push(...(await catalog.listLibraryRecipes({ ...filters, limit: input.limit - items.length, idRange: { gte: 0, lt: start }, order: 'asc' })));
+    }
+    return { items, next: items.length === input.limit ? { sort, after: items.at(-1)!.id, start, wrapped } : null };
+  });
+  if (!page.ok) return page;
+
+  return {
+    ok: true,
+    data: {
+      sort,
+      limit: input.limit,
+      items: page.data.items.map(toCard),
+      // null = no hay más páginas.
+      nextCursor: page.data.next ? encodeCursor(page.data.next) : null
+    }
+  } as const;
 }
 
 export async function getLibraryRecipe(catalog: FoodCatalogPort, recipeId: string) {

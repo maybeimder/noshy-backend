@@ -1,8 +1,18 @@
-import type { FoodCandidate, FoodNutritionFacts, FoodProduct, LibraryRecipe, LibraryRecipeSummary } from './food.model';
+import type { FoodCandidate, FoodNutritionFacts, FoodProduct, LibraryRecipe, LibraryRecipeCard, LibraryRecipeSummary } from './food.model';
 
-// Lo que guarda Mongo; los tags los deduce el servicio (food-tags.ts).
-export type LibraryRecipeData = Omit<LibraryRecipe, 'tags'>;
+// Lo que guarda Mongo; los tags (y la imagen, hoy inexistente) los completa el servicio.
+export type LibraryRecipeData = Omit<LibraryRecipe, 'tags' | 'image'>;
 export type LibraryRecipeSummaryData = Omit<LibraryRecipeSummary, 'tags'>;
+export type LibraryRecipeCardData = Omit<LibraryRecipeCard, 'tags' | 'image'>;
+
+// Página por rango de _id (keyset): nunca usa skip, así que cualquier página cuesta lo mismo.
+export type LibraryPageQuery = {
+  idRange: { gt?: number; gte?: number; lt?: number };
+  order: 'asc' | 'desc';
+  limit: number;
+  source?: 'Gathered' | 'Recipes1M';
+  maxIngredients?: number;
+};
 
 // Puerto del catálogo (MongoDB de solo lectura). El adaptador real vive en infrastructure/database/mongo.
 export interface FoodCatalogPort {
@@ -14,6 +24,9 @@ export interface FoodCatalogPort {
   // ingredients: nombres en inglés como en el campo `ner` de RecipeNLG.
   searchLibraryRecipes(ingredients: string[], options: { maxIngredients?: number; limit: number }): Promise<LibraryRecipeSummaryData[]>;
   getLibraryRecipes(ids: number[]): Promise<LibraryRecipeData[]>;
+  listLibraryRecipes(query: LibraryPageQuery): Promise<LibraryRecipeCardData[]>;
+  // Mayor _id de recipes_raw (los ids son continuos desde 0): base para la página aleatoria.
+  maxLibraryRecipeId(): Promise<number>;
 }
 
 // Sin MONGO_URL: cada consulta falla y los servicios responden FOOD_CATALOG_UNAVAILABLE (503).
@@ -26,7 +39,9 @@ export function createUnavailableFoodCatalog(): FoodCatalogPort {
     getProduct: unavailable,
     getNutritionFacts: unavailable,
     searchLibraryRecipes: unavailable,
-    getLibraryRecipes: unavailable
+    getLibraryRecipes: unavailable,
+    listLibraryRecipes: unavailable,
+    maxLibraryRecipeId: unavailable
   };
 }
 

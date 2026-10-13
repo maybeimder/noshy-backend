@@ -1,0 +1,32 @@
+meta {
+  name: Browse library (recent, filtered)
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/food/library/browse?sort=recent&limit=10&source=Recipes1M&maxIngredients=6
+  body: none
+  auth: bearer
+}
+
+params:query {
+  sort: recent
+  limit: 10
+  source: Recipes1M
+  maxIngredients: 6
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("responde 200 (o 503 sin MONGO_URL)", function () {
+    expect([200, 503]).to.include(res.getStatus());
+  });
+}
+
+docs {
+  recent / oldest ordenan por el id del dataset (no hay fechas): "recent" = las últimas recetas agregadas al dataset.
+}

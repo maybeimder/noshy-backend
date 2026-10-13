@@ -40,6 +40,17 @@ export const librarySearchSchema = z.object({
   limit: z.coerce.number().int().min(1).max(10).default(5)
 });
 
+// GET /food/library/browse?sort=random|recent|oldest&limit=20&cursor=...&source=...&maxIngredients=...
+// Sin parámetros: una página aleatoria. Para la siguiente página se manda el `nextCursor` recibido.
+export const LIBRARY_SORTS = ['random', 'recent', 'oldest'] as const;
+export const libraryBrowseSchema = z.object({
+  sort: z.enum(LIBRARY_SORTS).default('random'),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().trim().min(1).max(200).optional(),
+  source: z.enum(['Gathered', 'Recipes1M']).optional(),
+  maxIngredients: z.coerce.number().int().min(1).max(40).optional()
+});
+
 export const recipeGenerationSchema = z.object({
   ingredients: z
     .array(
@@ -62,4 +73,5 @@ export const foodHistorySchema = z.object({
 export type FoodSearchInput = z.infer<typeof foodSearchSchema>;
 export type MacroCalculationInput = z.infer<typeof macroCalculationSchema>;
 export type LibrarySearchInput = z.infer<typeof librarySearchSchema>;
+export type LibraryBrowseInput = z.infer<typeof libraryBrowseSchema>;
 export type RecipeGenerationInput = z.infer<typeof recipeGenerationSchema>;

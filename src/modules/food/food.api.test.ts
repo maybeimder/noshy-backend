@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { InMemoryEventStore } from '../../core/events/in-memory-event-store';
 import { setEventStore } from '../../infrastructure/event-bus/event-bus';
 import { createServer } from '../../infrastructure/http/server';
-import { normalizeSearchText, searchTerms, type FoodCatalogPort, type LibraryRecipeData } from './food-catalog.port';
+import { normalizeSearchText, searchTerms, type FoodCatalogPort, type LibraryPageQuery, type LibraryRecipeData } from './food-catalog.port';
 import type { FoodCandidate, FoodNutritionFacts, FoodProduct } from './food.model';
 import type { RecipeWriterContext, RecipeWriterPort } from './recipe-writer.port';
 import { escapeRegex } from '../../infrastructure/database/mongo/mongo-food-catalog';
@@ -62,8 +62,20 @@ const PRODUCTS = [
 
 const LIBRARY: LibraryRecipeData[] = [
   { id: 10, title: 'Chicken Fried Rice', ingredients: ['2 c. rice', '1 lb. chicken'], directions: ['Cook rice.', 'Fry with chicken.'], ner: ['rice', 'chicken', 'egg'], nIngredients: 3 },
-  { id: 11, title: 'Plain Rice', ingredients: ['1 c. rice'], directions: ['Boil.'], ner: ['rice', 'water'], nIngredients: 2 }
-];
+  { id: 11, title: 'Plain Rice', ingredients: ['1 c. rice'], directions: ['Boil.'], ner: ['rice', 'water'], nIngredients: 2 },
+  // Relleno para la paginación: ids 0..24 continuos, como en recipes_raw.
+  ...Array.from({ length: 25 }, (_, id) => id)
+    .filter((id) => id !== 10 && id !== 11)
+    .map((id) => ({
+      id,
+      title: `Salt Cake ${id}`,
+      ingredients: ['1 tsp. salt'],
+      directions: ['Mix.'],
+      ner: ['salt'],
+      nIngredients: id % 3 === 0 ? 1 : 9,
+      source: id % 2 === 0 ? 'Gathered' : 'Recipes1M'
+    }))
+].sort((left, right) => left.id - right.id);
 
 // Catálogo falso con la misma semántica que el adaptador de Mongo.
 class FakeCatalog implements FoodCatalogPort {
@@ -108,6 +120,24 @@ class FakeCatalog implements FoodCatalogPort {
   async getLibraryRecipes(ids: number[]) {
     this.check();
     return LIBRARY.filter((recipe) => ids.includes(recipe.id));
+  }
+  async listLibraryRecipes(query: LibraryPageQuery) {
+    this.check();
+    const { gt, gte, lt } = query.idRange;
+    const rows = LIBRARY.filter(
+      (recipe) =>
+        (gt === undefined || recipe.id > gt) &&
+        (gte === undefined || recipe.id >= gte) &&
+        (lt === undefined || recipe.id < lt) &&
+        (!query.source || recipe.source === query.source) &&
+        (!query.maxIngredients || recipe.nIngredients <= query.maxIngredients)
+    );
+    return (query.order === 'asc' ? rows : [...rows].reverse())
+      .slice(0, query.limit)
+      .map(({ id, title, ner, nIngredients, source }) => ({ id, title, ner, nIngredients, ...(source ? { source } : {}) }));
+  }
+  async maxLibraryRecipeId() {
+    return LIBRARY.at(-1)!.id;
   }
 }
 
@@ -267,6 +297,51 @@ test('library search translates ingredients (cached) and ranks by extra ingredie
     assert.deepEqual(detail.body.tags.diet, []);
     assert.deepEqual(detail.body.tags.effort, ['pocos ingredientes', 'rápida']);
     assert.equal((await call('/food/library/recipes/abc')).status, 404);
+  });
+});
+
+test('library browse: a random page by default; following the cursors visits every recipe exactly once', async () => {
+  await withApi(async (call) => {
+    const first = await call('/food/library/browse');
+    assert.equal(first.status, 200);
+    assert.equal(first.body.sort, 'random');
+    assert.equal(first.body.items.length, 20);
+    const card = first.body.items[0];
+    assert.equal(card.image, null);
+    assert.ok(card.tags && Array.isArray(card.tags.allergens));
+    assert.equal(card.directions, undefined, 'el listado no trae los pasos');
+
+    // Recorrido completo con páginas de 7: incluye la vuelta al principio de la colección.
+    const seen: number[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { body: { items: { id: number }[]; nextCursor: string | null } } = await call(
+        `/food/library/browse?limit=7${cursor ? `&cursor=${cursor}` : ''}`
+      );
+      seen.push(...page.body.items.map((item) => item.id));
+      cursor = page.body.nextCursor;
+    } while (cursor);
+    assert.equal(seen.length, 25);
+    assert.deepEqual([...seen].sort((left, right) => left - right), Array.from({ length: 25 }, (_, id) => id));
+  });
+});
+
+test('library browse: recent / oldest order by dataset id, with filters, and bad cursors are rejected', async () => {
+  await withApi(async (call) => {
+    const recent = await call('/food/library/browse?sort=recent&limit=3');
+    assert.deepEqual(recent.body.items.map((item: any) => item.id), [24, 23, 22]);
+    const next = await call(`/food/library/browse?limit=3&cursor=${recent.body.nextCursor}`);
+    assert.deepEqual(next.body.items.map((item: any) => item.id), [21, 20, 19]);
+
+    const oldest = await call('/food/library/browse?sort=oldest&limit=4&source=Gathered&maxIngredients=3');
+    assert.deepEqual(oldest.body.items.map((item: any) => item.id), [0, 6, 12, 18]);
+    const end = await call(`/food/library/browse?limit=4&source=Gathered&maxIngredients=3&cursor=${oldest.body.nextCursor}`);
+    assert.deepEqual(end.body.items.map((item: any) => item.id), [24]);
+    assert.equal(end.body.nextCursor, null);
+
+    assert.equal((await call('/food/library/browse?cursor=no-es-un-cursor')).status, 400);
+    assert.equal((await call('/food/library/browse?limit=51')).status, 400);
+    assert.equal((await call('/food/library/browse?sort=title')).status, 400);
   });
 });
 
