@@ -1,5 +1,5 @@
 import type { NutritionPlan } from '../plans/plan.model';
-import type { LibraryRecipe } from './food.model';
+import type { LibraryRecipeData } from './food-catalog.port';
 
 export type RecipeWriterIngredient = {
   name: string;
@@ -10,7 +10,7 @@ export type RecipeWriterIngredient = {
 
 export type RecipeWriterContext = {
   ingredients: RecipeWriterIngredient[];
-  references: LibraryRecipe[];
+  references: LibraryRecipeData[];
   servings: number;
   notes?: string;
   nutritionPlan?: NutritionPlan;
@@ -23,7 +23,12 @@ export type WrittenRecipe = {
   ingredients: { name: string; grams: number; foodId?: string }[];
   steps: string[];
   notes?: string;
+  // Tipo de comida según el modelo (se suma a los tags deducidos).
+  mealType?: RecipeMealType;
 };
+
+export const RECIPE_MEAL_TYPES = ['desayuno', 'almuerzo', 'cena', 'merienda', 'postre', 'bebida'] as const;
+export type RecipeMealType = (typeof RECIPE_MEAL_TYPES)[number];
 
 // Puerto de IA del módulo (OpenRouter en infrastructure/ai).
 export interface RecipeWriterPort {

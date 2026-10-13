@@ -1,14 +1,6 @@
 import type { Collection, Db, Document } from 'mongodb';
-import type { FoodCatalogPort } from '../../../modules/food/food-catalog.port';
-import type {
-  FoodNutritionFacts,
-  FoodProduct,
-  FoodSearchItem,
-  FoodServing,
-  LibraryRecipe,
-  LibraryRecipeSummary,
-  Nutrients
-} from '../../../modules/food/food.model';
+import type { FoodCatalogPort, LibraryRecipeData, LibraryRecipeSummaryData } from '../../../modules/food/food-catalog.port';
+import type { FoodCandidate, FoodNutritionFacts, FoodProduct, FoodServing, Nutrients } from '../../../modules/food/food.model';
 
 // Tiempo máximo por consulta: el dropdown no puede quedarse colgado.
 const SEARCH_TIMEOUT_MS = 2_000;
@@ -35,8 +27,13 @@ type ProductDoc = Document & {
   dietTags?: string[];
   labels?: string[];
   categories?: string[];
+  foodGroups?: string[];
+  nutrientLevels?: string[];
+  additives?: string[];
+  stores?: string[];
   image?: string | null;
   completeness?: number;
+  popularity?: number;
 };
 
 type RecipeDoc = Document & {
@@ -71,16 +68,19 @@ export class MongoFoodCatalog implements FoodCatalogPort {
     this.recipes = db.collection<RecipeDoc>('recipes_raw');
   }
 
-  async searchProducts(terms: string[], limit: number): Promise<FoodSearchItem[]> {
+  async findProductCandidates(terms: string[], max: number): Promise<FoodCandidate[]> {
     if (terms.length === 0) return [];
     const docs = await this.products
       .find(
         // Cada palabra debe aparecer al inicio de una palabra de `search` (texto ya normalizado).
         { $and: terms.map((term) => ({ search: { $regex: `\\b${escapeRegex(term)}` } })), suspect: { $ne: true } },
         {
-          projection: { name: 1, displayName: 1, brand: 1, state: 1, isGeneric: 1, image: 1, 'per100g.kcal': 1, servings: { $slice: 1 } },
+          projection: {
+            name: 1, displayName: 1, brand: 1, state: 1, isGeneric: 1, image: 1, 'per100g.kcal': 1, servings: { $slice: 1 },
+            foodGroups: 1, nova: 1, popularity: 1, completeness: 1
+          },
           sort: { popularity: -1, completeness: -1 },
-          limit,
+          limit: max,
           maxTimeMS: SEARCH_TIMEOUT_MS
         }
       )
@@ -96,7 +96,11 @@ export class MongoFoodCatalog implements FoodCatalogPort {
         isGeneric: doc.isGeneric === true,
         image: doc.image ?? null,
         kcalPer100g: typeof doc.per100g?.kcal === 'number' ? doc.per100g.kcal : null,
-        baseServing: { label: serving.label, grams: serving.grams }
+        baseServing: { label: serving.label, grams: serving.grams },
+        foodGroups: doc.foodGroups ?? [],
+        nova: typeof doc.nova === 'number' ? doc.nova : null,
+        popularity: doc.popularity ?? 0,
+        completeness: doc.completeness ?? 0
       };
     });
   }
@@ -107,7 +111,8 @@ export class MongoFoodCatalog implements FoodCatalogPort {
       {
         projection: {
           name: 1, displayName: 1, brand: 1, state: 1, pairKey: 1, isGeneric: 1, quantity: 1, per100g: 1, servings: 1,
-          nutriscore: 1, nova: 1, allergens: 1, traces: 1, ingredients: 1, dietTags: 1, labels: 1, categories: 1, image: 1, completeness: 1
+          nutriscore: 1, nova: 1, allergens: 1, traces: 1, ingredients: 1, dietTags: 1, labels: 1, categories: 1, image: 1, completeness: 1,
+          foodGroups: 1, nutrientLevels: 1, additives: 1, stores: 1
         },
         maxTimeMS: SEARCH_TIMEOUT_MS
       }
@@ -131,6 +136,10 @@ export class MongoFoodCatalog implements FoodCatalogPort {
       dietTags: doc.dietTags ?? [],
       labels: doc.labels ?? [],
       categories: doc.categories ?? [],
+      foodGroups: doc.foodGroups ?? [],
+      nutrientLevels: doc.nutrientLevels ?? [],
+      additives: doc.additives ?? [],
+      stores: doc.stores ?? [],
       image: doc.image ?? null,
       ...(typeof doc.completeness === 'number' ? { completeness: doc.completeness } : {})
     };
@@ -141,7 +150,10 @@ export class MongoFoodCatalog implements FoodCatalogPort {
     const docs = await this.products
       .find(
         { _id: { $in: ids } },
-        { projection: { name: 1, displayName: 1, brand: 1, state: 1, per100g: 1, servings: 1 }, maxTimeMS: SEARCH_TIMEOUT_MS }
+        {
+          projection: { name: 1, displayName: 1, brand: 1, state: 1, per100g: 1, servings: 1, allergens: 1, foodGroups: 1 },
+          maxTimeMS: SEARCH_TIMEOUT_MS
+        }
       )
       .toArray();
     return docs.map((doc) => ({
@@ -150,11 +162,13 @@ export class MongoFoodCatalog implements FoodCatalogPort {
       brand: doc.brand ?? 'generic',
       ...(doc.state ? { state: doc.state } : {}),
       per100g: doc.per100g ?? {},
-      servings: doc.servings?.length ? doc.servings : [BASE_SERVING]
+      servings: doc.servings?.length ? doc.servings : [BASE_SERVING],
+      allergens: doc.allergens ?? [],
+      foodGroups: doc.foodGroups ?? []
     }));
   }
 
-  async searchLibraryRecipes(ingredients: string[], options: { maxIngredients?: number; limit: number }): Promise<LibraryRecipeSummary[]> {
+  async searchLibraryRecipes(ingredients: string[], options: { maxIngredients?: number; limit: number }): Promise<LibraryRecipeSummaryData[]> {
     if (ingredients.length === 0) return [];
     const docs = await this.recipes
       .aggregate<RecipeDoc & { extra: number }>(
@@ -179,7 +193,7 @@ export class MongoFoodCatalog implements FoodCatalogPort {
     }));
   }
 
-  async getLibraryRecipes(ids: number[]): Promise<LibraryRecipe[]> {
+  async getLibraryRecipes(ids: number[]): Promise<LibraryRecipeData[]> {
     if (ids.length === 0) return [];
     const docs = await this.recipes
       .find(

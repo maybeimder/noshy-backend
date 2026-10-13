@@ -32,7 +32,9 @@ tests {
 }
 
 docs {
-  Dropdown / autocompletado sobre products_slim. Todas las palabras deben aparecer; el genérico sale primero.
-  Respuesta: [{ id, name, brand, state, isGeneric, image, kcalPer100g, baseServing: { label, grams } }].
+  Dropdown / autocompletado sobre products_slim. Todas las palabras deben aparecer; ordena por relevancia
+  (el alimento en sí antes que sabores, procesados o snacks).
+  Respuesta: [{ id, name, brand, state, isGeneric, image, kcalPer100g, baseServing: { label, grams }, exactMatch }].
+  exactMatch=true: el producto ES el alimento buscado (no "papas sabor pollo").
   Guarda el primer resultado en {{foodId}}.
 }

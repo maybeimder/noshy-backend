@@ -3,13 +3,16 @@ import { db } from '../../infrastructure/persistence/persistence';
 import { getActiveNutritionPlan } from '../plans/plan.service';
 import { FoodMealLoggedEvent, FoodRecipeGeneratedEvent } from './events/food.events';
 import { FoodHistoryProjection } from './food-history.projection';
-import { normalizeSearchText, searchTerms, type FoodCatalogPort } from './food-catalog.port';
+import { normalizeSearchText, searchTerms, type FoodCatalogPort, type LibraryRecipeData, type LibraryRecipeSummaryData } from './food-catalog.port';
+import { rankFoods, type RankedFood } from './food-ranking';
+import { inferRecipeTags } from './food-tags';
 import {
   NUTRIENT_KEYS,
   type FoodNutritionFacts,
   type FoodSearchItem,
   type GeneratedRecipe,
   type GeneratedRecipeIngredient,
+  type LibraryRecipe,
   type LibraryRecipeSummary,
   type MacroLine,
   type MacroSummary,
@@ -49,10 +52,24 @@ async function fromCatalog<T>(query: () => Promise<T>): Promise<{ ok: true; data
 
 // ---------- Catálogo ----------
 
+// Candidatos que se traen por popularidad antes de ordenarlos por relevancia. El catálogo es chico (~7.6k)
+// y la proyección mínima, así que 100 es barato y cubre palabras comunes ("pollo" tiene ~90).
+const CANDIDATE_POOL = 100;
+
+function toSearchItem({ foodGroups: _groups, nova: _nova, popularity: _popularity, completeness: _completeness, score: _score, reliable, ...item }: RankedFood): FoodSearchItem {
+  return { ...item, exactMatch: reliable };
+}
+
+async function rankedCandidates(catalog: FoodCatalogPort, terms: string[]): Promise<RankedFood[]> {
+  return rankFoods(terms, await catalog.findProductCandidates(terms, CANDIDATE_POOL));
+}
+
 export async function searchFoods(catalog: FoodCatalogPort, input: FoodSearchInput) {
   const terms = searchTerms(input.q);
   if (terms.length === 0) return { ok: true, data: [] as FoodSearchItem[] } as const;
-  return fromCatalog(() => catalog.searchProducts(terms, input.limit));
+  const ranked = await fromCatalog(() => rankedCandidates(catalog, terms));
+  if (!ranked.ok) return ranked;
+  return { ok: true, data: ranked.data.slice(0, input.limit).map(toSearchItem) } as const;
 }
 
 export async function getFood(catalog: FoodCatalogPort, foodId: string) {
@@ -197,9 +214,15 @@ export async function searchLibraryRecipes(deps: FoodDependencies, input: Librar
     data: {
       searchedIngredients: terms,
       translated,
-      recipes: recipes.data
+      recipes: recipes.data.map(
+        (recipe): LibraryRecipeSummary => ({ ...recipe, tags: inferRecipeTags({ title: recipe.title, ingredients: recipe.ner }) })
+      )
     }
   } as const;
+}
+
+function withTags(recipe: LibraryRecipeData): LibraryRecipe {
+  return { ...recipe, tags: inferRecipeTags({ title: recipe.title, ingredients: recipe.ner, steps: recipe.directions.length }) };
 }
 
 export async function getLibraryRecipe(catalog: FoodCatalogPort, recipeId: string) {
@@ -207,12 +230,12 @@ export async function getLibraryRecipe(catalog: FoodCatalogPort, recipeId: strin
   if (!/^\d{1,10}$/.test(recipeId)) return notFound;
   const result = await fromCatalog(() => catalog.getLibraryRecipes([Number(recipeId)]));
   if (!result.ok) return result;
-  return result.data[0] ? ({ ok: true, data: result.data[0] } as const) : notFound;
+  return result.data[0] ? ({ ok: true, data: withTags(result.data[0]) } as const) : notFound;
 }
 
 // Con muchos ingredientes `$all` casi nunca encuentra nada: se relaja quitando los últimos hasta tener referencias.
-async function findReferences(catalog: FoodCatalogPort, terms: string[], wanted: number): Promise<LibraryRecipeSummary[]> {
-  const found = new Map<number, LibraryRecipeSummary>();
+async function findReferences(catalog: FoodCatalogPort, terms: string[], wanted: number): Promise<LibraryRecipeSummaryData[]> {
+  const found = new Map<number, LibraryRecipeSummaryData>();
   for (let size = terms.length; size >= Math.max(1, terms.length - 2) && found.size < wanted; size--) {
     const batch = await catalog.searchLibraryRecipes(terms.slice(0, size), { limit: wanted });
     for (const recipe of batch) if (!found.has(recipe.id)) found.set(recipe.id, recipe);
@@ -222,19 +245,18 @@ async function findReferences(catalog: FoodCatalogPort, terms: string[], wanted:
 
 // ---------- Recetas generadas (RAG) ----------
 
-// Nombre -> producto del catálogo. En recetas, sin indicación se asume crudo: se prefiere el genérico no cocido.
-async function resolveFoodByName(catalog: FoodCatalogPort, name: string): Promise<FoodSearchItem | null> {
+// Nombre -> producto del catálogo, solo si es un match confiable (el producto ES el alimento). Para macros
+// es mejor omitir un ingrediente (y avisarlo) que sumar los de una salchicha cuando se pidió pollo.
+// "pimienta negra molida" sin resultados -> se reintenta con "pimienta negra" y luego "pimienta".
+// En recetas, sin indicación se asume crudo: ante la duda se descarta lo cocido o enlatado.
+export async function resolveFoodByName(catalog: FoodCatalogPort, name: string): Promise<RankedFood | null> {
   const terms = searchTerms(name);
-  if (terms.length === 0) return null;
-  const candidates = await catalog.searchProducts(terms, 10);
-  const uncooked = (item: FoodSearchItem) => item.state !== 'cooked' && item.state !== 'canned';
-  return (
-    candidates.find((item) => item.isGeneric && uncooked(item)) ??
-    candidates.find((item) => item.isGeneric) ??
-    candidates.find(uncooked) ??
-    candidates[0] ??
-    null
-  );
+  for (let size = terms.length; size >= 1; size--) {
+    const ranked = (await rankedCandidates(catalog, terms.slice(0, size))).filter((item) => item.reliable);
+    const match = ranked.find((item) => item.state !== 'cooked' && item.state !== 'canned') ?? ranked[0];
+    if (match) return match;
+  }
+  return null;
 }
 
 export async function generateRecipe(userId: string, deps: FoodDependencies, input: RecipeGenerationInput) {
@@ -292,7 +314,7 @@ export async function generateRecipe(userId: string, deps: FoodDependencies, inp
   const ingredients: GeneratedRecipeIngredient[] = written.ingredients.map((ingredient, index) => {
     const product = resolved.data[index] ? facts.get(resolved.data[index]!) : undefined;
     if (!product) {
-      warnings.push(`"${ingredient.name}" no está en el catálogo: no suma a los macros.`);
+      warnings.push(`"${ingredient.name}" no tiene un equivalente fiable en el catálogo: no suma a los macros.`);
       return { name: ingredient.name, grams: ingredient.grams, foodId: null, matchedName: null };
     }
     lines.push(macroLine(product, ingredient.grams));
@@ -305,6 +327,8 @@ export async function generateRecipe(userId: string, deps: FoodDependencies, inp
     };
   });
 
+  const perServing = sumNutrients(lines, written.servings);
+  const matchedProducts = ingredients.flatMap((ingredient) => (ingredient.foodId ? [facts.get(ingredient.foodId)!] : []));
   const recipe: GeneratedRecipe = {
     id: randomUUID(),
     title: written.title,
@@ -312,9 +336,18 @@ export async function generateRecipe(userId: string, deps: FoodDependencies, inp
     ingredients,
     steps: written.steps,
     ...(written.notes ? { notes: written.notes } : {}),
+    tags: inferRecipeTags({
+      title: written.title,
+      ingredients: ingredients.map((ingredient) => ingredient.name),
+      steps: written.steps.length,
+      productAllergens: matchedProducts.flatMap((product) => product.allergens),
+      productFoodGroups: matchedProducts.flatMap((product) => product.foodGroups),
+      ...(written.mealType ? { mealType: written.mealType } : {}),
+      nutrientsPerServing: perServing
+    }),
     macros: {
       total: sumNutrients(lines),
-      perServing: sumNutrients(lines, written.servings),
+      perServing,
       lines
     },
     warnings

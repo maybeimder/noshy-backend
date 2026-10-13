@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { RecipeWriterContext, RecipeWriterPort, WrittenRecipe } from '../../modules/food/recipe-writer.port';
+import { RECIPE_MEAL_TYPES, type RecipeWriterContext, type RecipeWriterPort, type WrittenRecipe } from '../../modules/food/recipe-writer.port';
 import { extractJson, OpenRouterClient, type OpenRouterOptions } from './openrouter.client';
 
 const TRANSLATE_PROMPT = `Traduces nombres de ingredientes del español al inglés para buscarlos en el dataset RecipeNLG (campo "ner").
@@ -14,8 +14,9 @@ Reglas:
 - Cada ingrediente lleva "grams" (número, en gramos, crudo salvo que se diga lo contrario).
 - Respeta las restricciones del plan nutricional si las hay.
 - NO calcules calorías ni macros.
+- "mealType" es uno de: desayuno, almuerzo, cena, merienda, postre, bebida.
 Responde SOLO con JSON:
-{"title": "...", "servings": <número>, "ingredients": [{"name": "...", "grams": <número>, "foodId": "<opcional>"}], "steps": ["..."], "notes": "<opcional>"}`;
+{"title": "...", "servings": <número>, "mealType": "...", "ingredients": [{"name": "...", "grams": <número>, "foodId": "<opcional>"}], "steps": ["..."], "notes": "<opcional>"}`;
 
 const translationSchema = z.object({ ingredients: z.array(z.string().trim().min(1)) });
 
@@ -33,7 +34,9 @@ const writtenRecipeSchema = z.object({
     .min(1)
     .max(30),
   steps: z.array(z.string().trim().min(1)).min(1).max(30),
-  notes: z.string().trim().max(600).optional().nullable()
+  notes: z.string().trim().max(600).optional().nullable(),
+  // Un tipo inventado por el modelo se descarta en vez de invalidar la receta.
+  mealType: z.enum(RECIPE_MEAL_TYPES).optional().catch(undefined)
 });
 
 function describeReferences(context: RecipeWriterContext): string {
@@ -101,7 +104,8 @@ export class OpenRouterRecipeWriter implements RecipeWriterPort {
       servings: recipe.servings,
       ingredients: recipe.ingredients.map(({ name, grams, foodId }) => ({ name, grams, ...(foodId ? { foodId } : {}) })),
       steps: recipe.steps,
-      ...(recipe.notes ? { notes: recipe.notes } : {})
+      ...(recipe.notes ? { notes: recipe.notes } : {}),
+      ...(recipe.mealType ? { mealType: recipe.mealType } : {})
     };
   }
 }

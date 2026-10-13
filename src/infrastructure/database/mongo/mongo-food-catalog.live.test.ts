@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { searchTerms } from '../../../modules/food/food-catalog.port';
+import { resolveFoodByName, searchFoods } from '../../../modules/food/food.service';
 import { MongoFoodCatalog } from './mongo-food-catalog';
 import { checkFoodIndexes, MongoConnection } from './mongo.connection';
 
@@ -11,15 +12,19 @@ const catalog = connection ? new MongoFoodCatalog(connection.db()) : undefined;
 
 after(() => connection?.close());
 
-test('live: the dropdown finds "arroz" with the generic first', { skip }, async () => {
-  const items = await catalog!.searchProducts(searchTerms('arroz'), 10);
-  assert.ok(items.length > 0);
-  assert.ok(items.every((item) => item.baseServing.grams > 0));
-  console.log('arroz ->', items.slice(0, 5).map((item) => `${item.id} ${item.name} [${item.brand}${item.state ? `, ${item.state}` : ''}]`));
+test('live: the dropdown ranks real chicken first, not sausages or chips', { skip }, async () => {
+  const result = await searchFoods(catalog!, { q: 'pollo', limit: 5 });
+  assert.ok(result.ok);
+  console.log('pollo ->', result.data.map((item) => `${item.exactMatch ? '✓' : ' '} ${item.name} [${item.brand}]`));
+  assert.ok(result.data[0].exactMatch);
+  assert.doesNotMatch(result.data[0].name, /salchicha|sabor|nuggets/i);
+
+  const pick = await resolveFoodByName(catalog!, 'pimienta');
+  assert.doesNotMatch(pick?.name ?? '', /man[ií]/i);
 });
 
 test('live: nutrition facts and detail of a found product', { skip }, async () => {
-  const [first] = await catalog!.searchProducts(searchTerms('arroz'), 1);
+  const [first] = await catalog!.findProductCandidates(searchTerms('arroz'), 1);
   const [facts] = await catalog!.getNutritionFacts([first.id]);
   assert.equal(facts.id, first.id);
   assert.ok(facts.servings.length > 0);
