@@ -1,6 +1,7 @@
 // Entrada única (HTTP y RabbitMQ) del módulo de alimentos: catálogo, macros, biblioteca de recetas y RAG.
 import { defineHandler } from '../../../core/commands/command-bus';
 import {
+  browseLibraryRecipes,
   calculateMacros,
   generateRecipe,
   getFood,
@@ -11,13 +12,21 @@ import {
   searchLibraryRecipes,
   type FoodDependencies
 } from '../food.service';
-import { foodHistorySchema, foodSearchSchema, librarySearchSchema, macroCalculationSchema, recipeGenerationSchema } from '../http/food.dto';
+import {
+  foodHistorySchema,
+  foodSearchSchema,
+  libraryBrowseSchema,
+  librarySearchSchema,
+  macroCalculationSchema,
+  recipeGenerationSchema
+} from '../http/food.dto';
 
 export const FoodHandlers = {
   searchProducts: 'food.search_products',
   getProduct: 'food.get_product',
   calculateMacros: 'food.calculate_macros',
   searchLibrary: 'food.search_library',
+  browseLibrary: 'food.browse_library',
   getLibraryRecipe: 'food.get_library_recipe',
   generateRecipe: 'food.generate_recipe',
   history: 'food.history',
@@ -35,6 +44,7 @@ export function createFoodHandlers(deps: FoodDependencies) {
       execute: ({ userId, data }) => calculateMacros(userId, deps.catalog, data)
     }),
     defineHandler({ name: FoodHandlers.searchLibrary, schema: librarySearchSchema, execute: ({ data }) => searchLibraryRecipes(deps, data) }),
+    defineHandler({ name: FoodHandlers.browseLibrary, schema: libraryBrowseSchema, execute: ({ data }) => browseLibraryRecipes(deps.catalog, data) }),
     defineHandler({
       name: FoodHandlers.getLibraryRecipe,
       params: ['recipeId'],

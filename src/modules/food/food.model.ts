@@ -92,6 +92,19 @@ export type LibraryRecipeSummary = {
   tags: RecipeTags;
 };
 
+// Tarjeta del listado paginado de la biblioteca (sin pasos ni cantidades: eso va en el detalle).
+export type LibraryRecipeCard = {
+  id: number;
+  title: string;
+  ner: string[];
+  nIngredients: number;
+  source?: string;
+  url?: string;
+  // RecipeNLG no trae imágenes: hoy siempre es null. El campo existe para que el front ya lo contemple.
+  image: string | null;
+  tags: RecipeTags;
+};
+
 export type LibraryRecipe = {
   id: number;
   title: string;
@@ -101,6 +114,7 @@ export type LibraryRecipe = {
   nIngredients: number;
   source?: string;
   url?: string;
+  image: string | null;
   tags: RecipeTags;
 };
 

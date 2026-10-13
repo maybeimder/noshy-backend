@@ -1,0 +1,39 @@
+meta {
+  name: Browse library (random)
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/food/library/browse
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+script:post-response {
+  if (res.getStatus() === 200 && res.getBody().nextCursor) {
+    bru.setVar("libraryCursor", res.getBody().nextCursor);
+  }
+}
+
+tests {
+  test("responde 200 con una página (o 503 sin MONGO_URL)", function () {
+    expect([200, 503]).to.include(res.getStatus());
+    if (res.getStatus() === 200) {
+      expect(res.getBody().sort).to.equal("random");
+      expect(res.getBody().items).to.be.an("array");
+    }
+  });
+}
+
+docs {
+  Listado paginado de la biblioteca de recetas (recipes_raw, 2.2M). Sin parámetros: una página ALEATORIA de 20.
+  Query opcional: sort=random|recent|oldest, limit (1-50), source=Gathered|Recipes1M, maxIngredients (1-40), cursor.
+  Respuesta: { sort, limit, items: [{ id, title, ner, nIngredients, source, url, image, tags }], nextCursor }.
+  Para la página siguiente manda ?cursor=<nextCursor> (el cursor ya recuerda el orden). nextCursor=null: no hay más.
+  image siempre es null: el dataset no trae imágenes. El detalle (pasos y cantidades) está en GET /food/library/recipes/:id.
+}

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { routeParam, runHandler } from '../../../infrastructure/http/command-dispatch';
 import { FoodHandlers } from '../events/food.handlers';
 import type {
+  browseLibraryRecipes,
   calculateMacros,
   generateRecipe,
   getFood,
@@ -19,6 +20,7 @@ const STATUS_BY_CODE: Record<string, number> = {
   LIBRARY_RECIPE_NOT_FOUND: 404,
   GENERATED_RECIPE_NOT_FOUND: 404,
   SERVING_NOT_FOUND: 422,
+  INVALID_CURSOR: 400,
   FOOD_CATALOG_UNAVAILABLE: 503,
   RECIPE_WRITER_UNAVAILABLE: 503
 };
@@ -56,6 +58,9 @@ export class FoodController {
 
   static searchLibrary = (request: Request, response: Response) =>
     respond<Awaited<ReturnType<typeof searchLibraryRecipes>>>(request, response, FoodHandlers.searchLibrary, { data: request.query });
+
+  static browseLibrary = (request: Request, response: Response) =>
+    respond<Awaited<ReturnType<typeof browseLibraryRecipes>>>(request, response, FoodHandlers.browseLibrary, { data: request.query });
 
   static getLibraryRecipe = (request: Request, response: Response) =>
     respond<Awaited<ReturnType<typeof getLibraryRecipe>>>(request, response, FoodHandlers.getLibraryRecipe, {

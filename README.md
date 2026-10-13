@@ -29,7 +29,7 @@ pnpm dev:worker                   # Worker: consume eventos y alimenta los obser
 
 La API, el worker y `pnpm db:migrate` cargan `backend/.env` al arrancar (las variables de la terminal tienen prioridad). Los tests no lo leen.
 
-Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (43 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
+Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (46 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
 
 Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los tests de integración contra Postgres y RabbitMQ reales (usan schemas y exchanges temporales y los borran al terminar).
 
@@ -125,7 +125,7 @@ No hay revocación ni refresh token: un token vale hasta que expira.
 | Feedback         | `POST/GET /feedback`, `GET /recommendations`                                     |
 | Compras          | `POST /shopping-list` desde recetas guardadas o recetas inline del agente        |
 | Alimentos        | `GET /food/products?q=`, `GET /food/products/:id`, `POST /food/macros`, `GET /food/history` |
-| Recetas IA (RAG) | `GET /food/library/recipes?ingredients=`, `GET /food/library/recipes/:id`, `POST /food/recipes/generate`, `GET /food/recipes/:id` |
+| Recetas IA (RAG) | `GET /food/library/browse`, `GET /food/library/recipes?ingredients=`, `GET /food/library/recipes/:id`, `POST /food/recipes/generate`, `GET /food/recipes/:id` |
 
 Los errores de rutas desconocidas y JSON inválido usan el formato:
 
@@ -167,6 +167,7 @@ El módulo `food` consulta un MongoDB **de solo lectura** (base `food`, usuario 
 - **Ojo con los datos:** hoy el catálogo no tiene genéricos USDA (`source: "usda"`, `state`, `pairKey` están vacíos) ni varios básicos crudos (cebolla, ajo, zanahoria). Cuando no hay un match confiable, la receta generada omite ese ingrediente de los macros y lo avisa en `warnings`, en vez de sumar los de un snack.
 - **Macros** (`POST /food/macros`): por gramos o por porción (`serving` + `quantity`); sin cantidad usa 100 g y lo avisa. Con `"log": true` registra la comida (evento `food.meal_logged`).
 - **`recipes_raw`** (RecipeNLG, ~2.2M recetas en inglés, sin calorías): `GET /food/library/recipes?ingredients=pollo,arroz`. Los ingredientes se traducen al inglés con OpenRouter (con caché en memoria) y se buscan por `ner`.
+- **Biblioteca paginada** (`GET /food/library/browse`): sin parámetros devuelve una página **aleatoria** de 20 recetas; `sort=recent|oldest` ordena por id del dataset (RecipeNLG no tiene fechas, así que "recent" son las últimas agregadas). Filtros: `source` (`Gathered`/`Recipes1M`) y `maxIngredients`. Paginación por cursor (`nextCursor`, sin `skip`): cualquier página cuesta lo mismo, también en modo aleatorio, que arranca en un id al azar y recorre toda la colección sin repetir. Cada tarjeta trae `tags` e `image` (hoy siempre `null`: el dataset no trae imágenes).
 - **RAG** (`POST /food/recipes/generate`): trae recetas de referencia, el modelo de OpenRouter redacta una receta en español y **el back calcula los macros** cruzando cada ingrediente con `products_slim` (en recetas, sin indicación se asume crudo). Registra `food.recipe_generated` y devuelve `recipeInput`, listo para `POST /recipes`.
 - **Tags de recetas** (`tags` en la biblioteca y en las recetas generadas): `diet` (vegetariana, vegana), `allergens` (gluten, leche, huevo, maní, frutos secos, soya, pescado, mariscos, ajonjolí), `mealTypes` (postre, sopa, ensalada, desayuno, salsa… o el tipo que da el modelo), `proteins` (pollo, res, cerdo, pescado, legumbres…), `nutrition` (alto en proteína, bajo en carbohidratos… solo con macros) y `effort` (pocos ingredientes, rápida). Se deducen con un léxico bilingüe (`modules/food/food-tags.ts`) más los alérgenos y grupos de los productos del catálogo. Son orientativos: `allergens` lista lo detectado y nunca se afirma "sin gluten".
 - **Historial** (`GET /food/history`, `GET /food/recipes/:id`): no tiene tabla propia, se reconstruye reproduciendo los eventos `food.*` del usuario (Event Sourcing).

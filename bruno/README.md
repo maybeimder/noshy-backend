@@ -1,6 +1,6 @@
 # Colección de Bruno — Noshy API
 
-43 requests en orden que recorren el flujo MVP completo: registro → plan → inventario → receta → comunidad → lista de compras → chef (IA) → feedback → cierre de sesión → limpieza → alimentos (catálogo Mongo, macros, biblioteca de recetas y receta generada con IA).
+46 requests en orden que recorren el flujo MVP completo: registro → plan → inventario → receta → comunidad → lista de compras → chef (IA) → feedback → cierre de sesión → limpieza → alimentos (catálogo Mongo, macros, biblioteca de recetas y receta generada con IA).
 
 - El **token JWT** y los ids (`recipeId`, `itemId`, `sessionId`) se guardan solos en variables al ejecutar cada request.
 - Cada corrida registra un usuario nuevo (`ana.<timestamp>@noshy.com`), así que se puede repetir sin errores.
@@ -67,7 +67,7 @@ La API debe imprimir `Variables cargadas desde .env`, `Postgres conectado`, `Age
 
 1. Bruno → **Open Collection** → selecciona la carpeta `backend/bruno`.
 2. Arriba a la derecha, elige el entorno **local**.
-3. Click derecho sobre la colección → **Run** → **Run Collection**. Deberías ver 43/43 en verde.
+3. Click derecho sobre la colección → **Run** → **Run Collection**. Deberías ver 46/46 en verde.
 
 También puedes ejecutar las requests una por una en orden (empieza por `01 Auth/Register`, que guarda el token).
 

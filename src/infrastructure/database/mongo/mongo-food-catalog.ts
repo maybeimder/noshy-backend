@@ -1,10 +1,18 @@
 import type { Collection, Db, Document } from 'mongodb';
-import type { FoodCatalogPort, LibraryRecipeData, LibraryRecipeSummaryData } from '../../../modules/food/food-catalog.port';
+import type {
+  FoodCatalogPort,
+  LibraryPageQuery,
+  LibraryRecipeCardData,
+  LibraryRecipeData,
+  LibraryRecipeSummaryData
+} from '../../../modules/food/food-catalog.port';
 import type { FoodCandidate, FoodNutritionFacts, FoodProduct, FoodServing, Nutrients } from '../../../modules/food/food.model';
 
 // Tiempo máximo por consulta: el dropdown no puede quedarse colgado.
 const SEARCH_TIMEOUT_MS = 2_000;
 const AGGREGATE_TIMEOUT_MS = 3_000;
+// Consultas de una sola vez al arrancar (límites de cada fuente): pueden recorrer un índice entero.
+const WARM_UP_TIMEOUT_MS = 30_000;
 // Tope de recetas candidatas que se ordenan: con un ingrediente común ("salt") $all coincide con cientos de miles.
 const LIBRARY_SCAN_LIMIT = 5_000;
 
@@ -191,6 +199,81 @@ export class MongoFoodCatalog implements FoodCatalogPort {
       extraIngredients: doc.extra,
       ...(doc.url ? { url: doc.url } : {})
     }));
+  }
+
+  async listLibraryRecipes(query: LibraryPageQuery): Promise<LibraryRecipeCardData[]> {
+    const { gt, gte, lt } = query.idRange;
+    const idRange = {
+      ...(gt !== undefined ? { $gt: gt } : {}),
+      ...(gte !== undefined ? { $gte: gte } : {}),
+      ...(lt !== undefined ? { $lt: lt } : {})
+    };
+    // Cada fuente ocupa un tramo de _id: acotarlo evita recorrer 1.6M "Gathered" para llegar a "Recipes1M".
+    const bounds = query.source ? await this.sourceBounds(query.source) : undefined;
+    const idConditions = [
+      ...(Object.keys(idRange).length > 0 ? [{ _id: idRange }] : []),
+      ...(bounds ? [{ _id: { $gte: bounds.min, $lte: bounds.max } }] : [])
+    ];
+    const docs = await this.recipes
+      .find(
+        {
+          // `{ _id: {} }` no coincide con nada: solo se agregan los rangos que tienen límites.
+          ...(idConditions.length > 0 ? { $and: idConditions } : {}),
+          ...(query.source ? { source: query.source } : {}),
+          ...(query.maxIngredients ? { nIngredients: { $lte: query.maxIngredients } } : {})
+        },
+        {
+          projection: { title: 1, ner: 1, nIngredients: 1, source: 1, url: 1 },
+          sort: { _id: query.order === 'asc' ? 1 : -1 },
+          // Recorre por _id y filtra al vuelo: con filtros comunes la página se llena enseguida.
+          hint: { _id: 1 },
+          limit: query.limit,
+          maxTimeMS: AGGREGATE_TIMEOUT_MS
+        }
+      )
+      .toArray();
+    return docs.map((doc) => ({
+      id: doc._id,
+      title: doc.title,
+      ner: doc.ner ?? [],
+      nIngredients: doc.nIngredients ?? doc.ner?.length ?? 0,
+      ...(doc.source ? { source: doc.source } : {}),
+      ...(doc.url ? { url: doc.url } : {})
+    }));
+  }
+
+  private readonly bounds = new Map<string, { min: number; max: number }>();
+
+  // Primer y último _id de una fuente (índice { source: 1 }). Se calcula una vez por proceso.
+  private async sourceBounds(source: string): Promise<{ min: number; max: number }> {
+    let bounds = this.bounds.get(source);
+    if (!bounds) {
+      const edge = async (direction: 1 | -1) =>
+        (await this.recipes.find({ source }, { projection: { _id: 1 }, sort: { _id: direction }, limit: 1, maxTimeMS: WARM_UP_TIMEOUT_MS }).toArray())[0]?._id;
+      const [min, max] = await Promise.all([edge(1), edge(-1)]);
+      // Fuente sin recetas: un rango vacío.
+      bounds = min === undefined || max === undefined ? { min: 1, max: 0 } : { min, max };
+      this.bounds.set(source, bounds);
+    }
+    return bounds;
+  }
+
+  // Precalcula (una vez, al conectar) lo que la paginación necesita: último _id y tramo de cada fuente.
+  // Hallar el tramo cuesta un recorrido por índice (~2 s); así ningún usuario lo paga en su request.
+  async warmUp(): Promise<void> {
+    await this.maxLibraryRecipeId();
+    for (const source of ['Gathered', 'Recipes1M']) await this.sourceBounds(source);
+  }
+
+  private maxId?: number;
+
+  async maxLibraryRecipeId(): Promise<number> {
+    // El dataset no cambia (solo lectura): se consulta una vez por proceso.
+    if (this.maxId === undefined) {
+      const [last] = await this.recipes.find({}, { projection: { _id: 1 }, sort: { _id: -1 }, limit: 1, maxTimeMS: SEARCH_TIMEOUT_MS }).toArray();
+      this.maxId = last?._id ?? 0;
+    }
+    return this.maxId;
   }
 
   async getLibraryRecipes(ids: number[]): Promise<LibraryRecipeData[]> {

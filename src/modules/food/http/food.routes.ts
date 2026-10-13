@@ -9,6 +9,7 @@ foodRouter.get('/products', FoodController.searchProducts);
 foodRouter.get('/products/:id', FoodController.getProduct);
 foodRouter.post('/macros', FoodController.calculateMacros);
 // Biblioteca de recetas de referencia (recipes_raw)
+foodRouter.get('/library/browse', FoodController.browseLibrary);
 foodRouter.get('/library/recipes', FoodController.searchLibrary);
 foodRouter.get('/library/recipes/:id', FoodController.getLibraryRecipe);
 // Recetas generadas con IA (RAG) e historial
