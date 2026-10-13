@@ -38,3 +38,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Generado por web-deploy en el server (puertos locales)
+docker-compose.override.yml

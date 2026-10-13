@@ -35,24 +35,33 @@ Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los te
 
 ## Despliegue con Docker (homelab / server)
 
-Todo corre en contenedores: Postgres, RabbitMQ, la API y el worker, con reinicio automático. Solo hace falta Docker y git (no Node ni pnpm).
+Todo corre en contenedores en **modo dev** (`tsx watch`, sin compilar): Postgres, RabbitMQ, la API y el worker, con reinicio automático. Solo hace falta Docker y git (no Node ni pnpm).
 
 ```bash
-git clone --recurse-submodules https://github.com/maybeimder/noshy.git
+git clone --recurse-submodules -b dev https://github.com/maybeimder/noshy.git
 cd noshy/backend
-cp .env.example .env    # define al menos JWT_SECRET (y OPENROUTER_API_KEY para el chef)
-docker compose up -d --build
+cp .env.example .env    # define JWT_SECRET (para que los tokens sobrevivan reinicios) y OPENROUTER_API_KEY
 ```
 
-- La API queda en `http://<ip-del-server>:3000` (cambia el puerto con `API_PORT`). Es lo único expuesto a la red.
-- Postgres (`5433`) y RabbitMQ (`5672`, panel `15672`) escuchan solo en `127.0.0.1` del server: el frontend no los necesita. Para ver el panel desde tu PC: `ssh -L 15672:localhost:15672 <server>` y abre http://localhost:15672.
+**Con dominio + HTTPS** (script `web-deploy`, Nginx + Certbot): desde `noshy/backend`,
+
+```bash
+sudo web-deploy api.tudominio.com -e tu@email.com
+# cuando pregunte el puerto HOST: 3000
+```
+
+**Sin dominio** (solo red local): pon `API_BIND=0.0.0.0` en `.env` y `docker compose up -d --build`; la API queda en `http://<ip-del-server>:3000`.
+
+- `api` es el primer servicio del compose a propósito: `web-deploy` genera su override de puertos para el primero. Ese override (`docker-compose.override.yml`) está en `.gitignore`.
+- Todo escucha en `127.0.0.1` del server; con `web-deploy` solo Nginx (80/443) queda expuesto. Para el panel de RabbitMQ desde tu PC: `ssh -L 15672:localhost:15672 <server>` y abre http://localhost:15672 (`noshy` / `noshy`).
 - La API aplica las migraciones al arrancar. Los datos viven en el volumen `noshy-postgres-data`.
-- Los contenedores corren con `NODE_ENV=production`: **sin `JWT_SECRET` la API no arranca** (a propósito).
 - CORS queda en `*` mientras no definas `CORS_ORIGIN`, así que el frontend puede llamar desde cualquier IP.
+- `./src` está montado en los contenedores: tras un `git pull`, `tsx watch` recarga solo en Linux. Si no lo hace (o cambiaron dependencias), usa la tabla de abajo.
 
 | Tarea | Comando |
 | ----- | ------- |
-| Actualizar a lo último de `dev` | `git pull && docker compose up -d --build` |
+| Actualizar código (solo `src/`) | `git pull && docker compose restart api worker` |
+| Actualizar dependencias (`package.json`) | `git pull && docker compose up -d --build` |
 | Ver logs | `docker compose logs -f api worker` |
 | Estado | `docker compose ps` |
 | Reiniciar | `docker compose restart api worker` |
@@ -61,7 +70,7 @@ docker compose up -d --build
 
 Para desarrollo en tu máquina sigue usando `pnpm infra:up` (solo Postgres + RabbitMQ) y `pnpm dev`.
 
-Build de producción sin Docker: `pnpm build` y luego `pnpm start` / `pnpm start:worker` (compila a `dist/` como CommonJS).
+`pnpm build` + `pnpm start` también funcionan (compilan a `dist/` como CommonJS), pero el despliegue actual no los usa.
 
 ## Arquitectura
 

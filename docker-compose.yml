@@ -1,11 +1,61 @@
-# Desarrollo local:  pnpm infra:up          -> solo Postgres + RabbitMQ (la API corre con pnpm dev)
-# Server / homelab:  docker compose up -d   -> todo: Postgres, RabbitMQ, API y worker
+# Server / homelab:  docker compose up -d --build   (o: sudo web-deploy <dominio>, puerto 3000)
+# Desarrollo local:  pnpm infra:up                  -> solo Postgres + RabbitMQ (la API con pnpm dev)
 #
-# Postgres y RabbitMQ solo escuchan en 127.0.0.1 del host: la red local no los ve.
-# Lo único expuesto a la red es la API (puerto API_PORT, 3000 por defecto).
-# Credenciales: se pueden cambiar en .env (POSTGRES_PASSWORD, RABBITMQ_USER, RABBITMQ_PASSWORD).
+# Todo escucha en 127.0.0.1 del host: lo publica Nginx (web-deploy). Para exponer la API directo
+# a la red local sin Nginx, define API_BIND=0.0.0.0 en .env.
+# La API y el worker corren en modo dev (tsx watch) con ./src montado: `git pull` y se recargan solos.
+#
+# `api` debe ser el PRIMER servicio: web-deploy genera su override de puertos para el primer servicio.
 
 services:
+  api:
+    build: .
+    image: noshy-backend-dev
+    container_name: noshy-api
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "watch", "src/entrypoints/api.ts"]
+    ports:
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
+    volumes:
+      - ./src:/app/src:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Dentro de la red de Docker los servicios se llaman por su nombre (postgres, rabbitmq).
+      PORT: "3000"
+      DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  worker:
+    build: . # misma imagen que la API (sale de la caché); evita que compose intente descargarla
+    image: noshy-backend-dev
+    container_name: noshy-worker
+    restart: unless-stopped
+    command: ["node_modules/.bin/tsx", "watch", "src/entrypoints/worker.ts"]
+    volumes:
+      - ./src:/app/src:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
+    depends_on:
+      api:
+        condition: service_healthy # la API crea la topología de RabbitMQ y aplica las migraciones
+
   postgres:
     image: postgres:17-alpine
     container_name: noshy-postgres
@@ -40,49 +90,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-
-  api:
-    build: .
-    image: noshy-backend
-    container_name: noshy-api
-    restart: unless-stopped
-    command: ["node", "dist/entrypoints/api.js"]
-    ports:
-      - "${API_PORT:-3000}:3000"
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      # Dentro de la red de Docker los servicios se llaman por su nombre (postgres, rabbitmq).
-      PORT: "3000"
-      DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 15s
-
-  worker:
-    image: noshy-backend
-    container_name: noshy-worker
-    restart: unless-stopped
-    command: ["node", "dist/entrypoints/worker.js"]
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
-    depends_on:
-      api:
-        condition: service_healthy # la API crea la topología de RabbitMQ y aplica las migraciones
 
 volumes:
   noshy-postgres-data:
