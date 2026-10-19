@@ -1,0 +1,35 @@
+name: deploy-dev
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:          # permite lanzarlo a mano desde la pestaña Actions
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false   # si llegan dos pushes, el segundo espera al primero
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux]
+    defaults:
+      run:
+        working-directory: /home/der/homelab/webapps/noshy/backend
+    steps:
+      - name: Actualizar código
+        run: |
+          set -euo pipefail
+          echo "OLD=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          git fetch origin dev
+          git merge --ff-only origin/dev
+
+      - name: Reconstruir si cambió la imagen
+        run: |
+          if git diff --name-only "$OLD" HEAD | grep -qE '^(package\.json|pnpm-lock\.yaml|Dockerfile|docker-compose(\.override)?\.yml)$'; then
+            docker compose up -d --build
+          else
+            echo "Solo cambió código: tsx watch lo recarga solo."
+          fi
+
+      - name: Estado
+        run: docker compose ps
