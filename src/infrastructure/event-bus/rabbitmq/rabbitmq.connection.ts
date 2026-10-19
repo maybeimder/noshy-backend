@@ -1,4 +1,5 @@
 import { connect, type Channel, type ChannelModel, type ConfirmChannel } from 'amqplib';
+import { applicationLogger } from '../../observability/logger';
 import { assertTopology } from './topology';
 
 // Una conexión TCP con dos canales:
@@ -18,7 +19,9 @@ export class RabbitMqConnection {
     await channel.prefetch(options.prefetch ?? 10);
     await assertTopology(channel);
 
-    model.on('error', (error) => console.error('[rabbitmq] error de conexión', error));
+    model.on('error', (error) => applicationLogger.error('rabbitmq.connection.error', 'Error de conexión con RabbitMQ', { error: error.message, stack: error.stack }));
+    model.on('close', () => applicationLogger.warn('rabbitmq.connection.closed', 'La conexión con RabbitMQ se cerró.'));
+    applicationLogger.info('rabbitmq.connection.ready', 'Conexión RabbitMQ establecida (canal de consumo + canal de confirms).', { prefetch: options.prefetch ?? 10 });
     return new RabbitMqConnection(model, channel, confirmChannel);
   }
 

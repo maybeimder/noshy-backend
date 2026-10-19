@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { getEnv } from './env';
+import { DEFAULT_DEBUG_LOGS_TOKEN, getEnv } from './env';
 
-test('getEnv applies safe defaults', () => {
+test('getEnv applies safe defaults (debug logs ON with default token)', () => {
   assert.deepEqual(getEnv({}), {
     port: 3000,
     corsOrigin: '*',
-    jsonBodyLimit: '1mb'
+    jsonBodyLimit: '1mb',
+    debugLogsEnabled: true,
+    debugLogsToken: DEFAULT_DEBUG_LOGS_TOKEN
   });
 });
 
@@ -14,8 +16,18 @@ test('getEnv parses configured values', () => {
   assert.deepEqual(getEnv({ PORT: '4000', CORS_ORIGIN: 'http://localhost:5173', JSON_BODY_LIMIT: '2mb' }), {
     port: 4000,
     corsOrigin: 'http://localhost:5173',
-    jsonBodyLimit: '2mb'
+    jsonBodyLimit: '2mb',
+    debugLogsEnabled: true,
+    debugLogsToken: DEFAULT_DEBUG_LOGS_TOKEN
   });
+});
+
+test('getEnv can disable debug logs and override the token', () => {
+  const environment = getEnv({ DEBUG_LOGS_ENABLED: 'false', DEBUG_LOGS_TOKEN: 'otro-token-largo-123456' });
+  assert.equal(environment.debugLogsEnabled, false);
+  assert.equal(environment.debugLogsToken, 'otro-token-largo-123456');
+  assert.equal(getEnv({ DEBUG_LOGS_ENABLED: '0' }).debugLogsEnabled, false);
+  assert.equal(getEnv({ DEBUG_LOGS_ENABLED: 'off' }).debugLogsEnabled, false);
 });
 
 test('getEnv reads an optional RabbitMQ URL and rejects non-AMQP URLs', () => {
@@ -45,7 +57,13 @@ test('getEnv reads the OpenRouter key and a comma-separated model list', () => {
 });
 
 test('getEnv treats empty values (KEY= in .env) as not defined', () => {
-  assert.deepEqual(getEnv({ JWT_SECRET: '', DATABASE_URL: '  ', OPENROUTER_API_KEY: '' }), { port: 3000, corsOrigin: '*', jsonBodyLimit: '1mb' });
+  assert.deepEqual(getEnv({ JWT_SECRET: '', DATABASE_URL: '  ', OPENROUTER_API_KEY: '' }), {
+    port: 3000,
+    corsOrigin: '*',
+    jsonBodyLimit: '1mb',
+    debugLogsEnabled: true,
+    debugLogsToken: DEFAULT_DEBUG_LOGS_TOKEN
+  });
 });
 
 test('getEnv rejects invalid ports', () => {

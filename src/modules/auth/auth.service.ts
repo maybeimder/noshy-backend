@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { applicationLogger } from '../../infrastructure/observability/logger';
 import { db } from '../../infrastructure/persistence/persistence';
 import type { AuthUser, LoginInput, RegisterInput } from './auth.model';
 import { UserLoggedInEvent, UserRegisteredEvent } from './events/auth.events';
@@ -11,7 +12,7 @@ const publicUser = (user: AuthUser) => ({ id: user.id, name: user.name, email: u
 export async function registerUser(input: RegisterInput) {
   const email = normalizeEmail(input.email);
 
-  return db().uow.transaction(async (tx) => {
+  const outcome = await db().uow.transaction(async (tx) => {
     if (await db().users.findByEmail(email, tx)) {
       return {
         ok: false,
@@ -36,12 +37,16 @@ export async function registerUser(input: RegisterInput) {
       data: { user: publicUser(user), token: await issueToken(user.id) }
     } as const;
   });
+
+  if (outcome.ok) applicationLogger.info('auth.register.ok', `Registro exitoso: ${email}`, { userId: outcome.data.user.id, email });
+  else applicationLogger.warn('auth.register.failed', `Registro rechazado (${outcome.code}): ${email}`, { code: outcome.code, email });
+  return outcome;
 }
 
 export async function loginUser(input: LoginInput) {
   const email = normalizeEmail(input.email);
 
-  return db().uow.transaction(async (tx) => {
+  const outcome = await db().uow.transaction(async (tx) => {
     const user = await db().users.findByEmail(email, tx);
     if (!user || !(await verifyPassword(input.password, user.password))) {
       return {
@@ -58,6 +63,10 @@ export async function loginUser(input: LoginInput) {
       data: { user: publicUser(user), token: await issueToken(user.id) }
     } as const;
   });
+
+  if (outcome.ok) applicationLogger.info('auth.login.ok', `Login exitoso: ${email}`, { userId: outcome.data.user.id, email });
+  else applicationLogger.warn('auth.login.failed', `Login fallido (${outcome.code}): ${email}`, { code: outcome.code, email });
+  return outcome;
 }
 
 // Token inválido, expirado, firmado con otro secreto o de un usuario que ya no existe -> null.

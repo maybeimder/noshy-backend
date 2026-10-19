@@ -1,4 +1,5 @@
 import { MongoClient, type Db } from 'mongodb';
+import { applicationLogger } from '../../observability/logger';
 
 // Base de datos del catálogo (products_slim, recipes_raw). Es de SOLO LECTURA: el usuario `app` tiene rol read.
 export const FOOD_DATABASE = 'food';
@@ -29,10 +30,15 @@ export class MongoConnection {
       try {
         await this.client.connect();
         await this.db().command({ ping: 1 });
+        applicationLogger.info('mongo.connected', 'MongoDB conectado y respondió al ping.', { database: FOOD_DATABASE, attempt });
         await onConnected?.();
         return;
       } catch (error) {
-        console.warn(`MongoDB no disponible (intento ${attempt}), reintento en ${delay / 1000}s:`, error instanceof Error ? error.message : error);
+        applicationLogger.warn('mongo.retry', `MongoDB no disponible (intento ${attempt}), reintento en ${delay / 1000}s.`, {
+          attempt,
+          retryInSeconds: delay / 1000,
+          error: error instanceof Error ? error.message : String(error)
+        });
         await new Promise((resolve) => setTimeout(resolve, delay).unref());
       }
     }
@@ -41,6 +47,7 @@ export class MongoConnection {
   async close(): Promise<void> {
     this.stopped = true;
     await this.client.close();
+    applicationLogger.info('mongo.closed', 'Conexión a MongoDB cerrada.');
   }
 }
 

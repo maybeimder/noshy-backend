@@ -54,6 +54,8 @@ export type HandlerOutcome =
   | { status: 'unknown_handler' }
   | { status: 'duplicate' };
 
+export type CommandBusLog = (event: string, message: string, details?: Record<string, unknown>) => void;
+
 // Registro de mensajes ya procesados (idempotencia ante reentregas de RabbitMQ).
 export interface ProcessedMessageStore {
   has(messageId: string): Promise<boolean>;
@@ -76,8 +78,15 @@ export class CommandBus {
   private readonly definitions = new Map<string, HandlerDefinition>();
   private readonly processed: ProcessedMessageStore;
 
-  constructor(options: { processedMessages?: ProcessedMessageStore } = {}) {
+  constructor(options: { processedMessages?: ProcessedMessageStore; onLog?: CommandBusLog } = {}) {
     this.processed = options.processedMessages ?? new InMemoryProcessedMessageStore();
+    this.onLog = options.onLog;
+  }
+
+  private readonly onLog?: CommandBusLog;
+
+  private log(event: string, message: string, details?: Record<string, unknown>) {
+    this.onLog?.(event, message, details);
   }
 
   register(...definitions: HandlerDefinition[]): this {
@@ -100,9 +109,19 @@ export class CommandBus {
 
   async dispatch(message: InboundMessage): Promise<HandlerOutcome> {
     const definition = this.definitions.get(message.name);
-    if (!definition) return { status: 'unknown_handler' };
+    this.log('command.received', message.name, {
+      command: message.name,
+      messageId: message.messageId,
+      userId: message.userId,
+      params: message.params
+    });
+    if (!definition) {
+      this.log('command.unknown', `Handler no encontrado: ${message.name}`, { command: message.name });
+      return { status: 'unknown_handler' };
+    }
 
     if (message.messageId && (await this.processed.has(message.messageId))) {
+      this.log('command.duplicate', `Mensaje duplicado: ${message.name}`, { command: message.name, messageId: message.messageId });
       return { status: 'duplicate' };
     }
 
@@ -110,25 +129,43 @@ export class CommandBus {
     let data: unknown = undefined;
     if (definition.schema) {
       const parsed = definition.schema.safeParse(message.data);
-      if (!parsed.success) return { status: 'invalid', issues: [...parsed.error.issues] };
+      if (!parsed.success) {
+        this.log('command.invalid', `Validación fallida: ${message.name}`, { command: message.name, issues: parsed.error.issues });
+        return { status: 'invalid', issues: [...parsed.error.issues] };
+      }
       data = parsed.data;
     }
 
     const userId = message.userId?.trim() ?? '';
-    if (definition.requiresUser !== false && !userId) return { status: 'unauthorized' };
+    if (definition.requiresUser !== false && !userId) {
+      this.log('command.unauthorized', `Usuario requerido: ${message.name}`, { command: message.name });
+      return { status: 'unauthorized' };
+    }
 
     const params = message.params ?? {};
     const missing = (definition.params ?? []).filter((name) => !params[name]?.trim());
     if (missing.length > 0) {
+      this.log('command.invalid', `Parámetros faltantes: ${message.name}`, { command: message.name, missing });
       return {
         status: 'invalid',
         issues: missing.map((name) => ({ code: 'missing_param', path: [name], message: `Falta el parámetro ${name}.` }))
       };
     }
 
-    const result = await definition.execute({ userId, params, data });
+    let result: unknown;
+    try {
+      result = await definition.execute({ userId, params, data });
+    } catch (error) {
+      this.log('command.failed', `Error ejecutando: ${message.name}`, {
+        command: message.name,
+        messageId: message.messageId,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
     // Se marca solo si ejecutó sin lanzar: si falla, el transporte puede reintentar el mismo mensaje.
     if (message.messageId) await this.processed.add(message.messageId, message.name);
+    this.log('command.handled', `Comando completado: ${message.name}`, { command: message.name, messageId: message.messageId });
     return { status: 'handled', result };
   }
 }

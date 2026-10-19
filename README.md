@@ -58,15 +58,15 @@ sudo web-deploy api.tudominio.com -e tu@email.com
 - CORS queda en `*` mientras no definas `CORS_ORIGIN`, así que el frontend puede llamar desde cualquier IP.
 - `./src` está montado en los contenedores: tras un `git pull`, `tsx watch` recarga solo en Linux. Si no lo hace (o cambiaron dependencias), usa la tabla de abajo.
 
-| Tarea | Comando |
-| ----- | ------- |
-| Actualizar código (solo `src/`) | `git pull && docker compose restart api worker` |
-| Actualizar dependencias (`package.json`) | `git pull && docker compose up -d --build` |
-| Ver logs | `docker compose logs -f api worker` |
-| Estado | `docker compose ps` |
-| Reiniciar | `docker compose restart api worker` |
-| Apagar (conserva los datos) | `docker compose down` |
-| Respaldar la base | `docker exec noshy-postgres pg_dump -U noshy noshy > backup.sql` |
+| Tarea                                    | Comando                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------- |
+| Actualizar código (solo `src/`)          | `git pull && docker compose restart api worker`                  |
+| Actualizar dependencias (`package.json`) | `git pull && docker compose up -d --build`                       |
+| Ver logs                                 | `docker compose logs -f api worker`                              |
+| Estado                                   | `docker compose ps`                                              |
+| Reiniciar                                | `docker compose restart api worker`                              |
+| Apagar (conserva los datos)              | `docker compose down`                                            |
+| Respaldar la base                        | `docker exec noshy-postgres pg_dump -U noshy noshy > backup.sql` |
 
 Para desarrollo en tu máquina sigue usando `pnpm infra:up` (solo Postgres + RabbitMQ) y `pnpm dev`.
 
@@ -85,20 +85,63 @@ Orientada a eventos, con Transactional Outbox y Event Sourcing:
 
 Variables opcionales:
 
-| Variable          | Valor por defecto | Descripción                                         |
-| ----------------- | ----------------- | --------------------------------------------------- |
-| `PORT`            | `3000`            | Puerto HTTP entre 1 y 65535                         |
-| `CORS_ORIGIN`     | `*`               | Origen permitido por CORS                           |
-| `JSON_BODY_LIMIT` | `1mb`             | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb` |
-| `DATABASE_URL`    | —                 | Postgres (`postgres://...`). Sin ella, estado en memoria |
-| `RABBITMQ_URL`    | —                 | RabbitMQ (`amqp://...`). Sin ella, eventos en proceso |
-| `JWT_SECRET`      | aleatorio         | Secreto (≥32 caracteres) para firmar los JWT. **Obligatorio con `NODE_ENV=production`** |
-| `JWT_EXPIRES_IN`  | `7d`              | Vigencia del token, por ejemplo `15m`, `12h` o `7d` |
-| `OPENROUTER_API_KEY` | —              | Activa el agente chef con OpenRouter. Sin ella, `respond` devuelve 503 |
-| `OPENROUTER_MODEL`   | modelos `:free` | Lista separada por comas; el primero es el preferido y el resto respaldo |
-| `MONGO_URL`          | —               | Catálogo de alimentos y recetas (Mongo de solo lectura). Sin ella, `/food` devuelve 503 |
+| Variable             | Valor por defecto | Descripción                                                                             |
+| -------------------- | ----------------- | --------------------------------------------------------------------------------------- |
+| `PORT`               | `3000`            | Puerto HTTP entre 1 y 65535                                                             |
+| `CORS_ORIGIN`        | `*`               | Origen permitido por CORS                                                               |
+| `JSON_BODY_LIMIT`    | `1mb`             | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb`                                     |
+| `DEBUG_LOGS_ENABLED` | `true`            | Visor remoto de logs. `false`/`0`/`no`/`off` lo desactiva                                |
+| `DEBUG_LOGS_TOKEN`   | `noshy-debug-2026`| Token (≥16 caracteres) para consultar los logs                                           |
+| `DATABASE_URL`       | —                 | Postgres (`postgres://...`). Sin ella, estado en memoria                                |
+| `RABBITMQ_URL`       | —                 | RabbitMQ (`amqp://...`). Sin ella, eventos en proceso                                   |
+| `JWT_SECRET`         | aleatorio         | Secreto (≥32 caracteres) para firmar los JWT. **Obligatorio con `NODE_ENV=production`** |
+| `JWT_EXPIRES_IN`     | `7d`              | Vigencia del token, por ejemplo `15m`, `12h` o `7d`                                     |
+| `OPENROUTER_API_KEY` | —                 | Activa el agente chef con OpenRouter. Sin ella, `respond` devuelve 503                  |
+| `OPENROUTER_MODEL`   | modelos `:free`   | Lista separada por comas; el primero es el preferido y el resto respaldo                |
+| `MONGO_URL`          | —                 | Catálogo de alimentos y recetas (Mongo de solo lectura). Sin ella, `/food` devuelve 503 |
 
 La configuración se valida al iniciar mediante `src/infrastructure/config/env.ts`.
+
+## Logs remotos de diagnóstico
+
+**Vienen activados por defecto**: basta hacer push a `dev` y el servidor auto-deploya con el visor encendido. Abre en el navegador el **visor en vivo**:
+
+```text
+https://TU_DOMINIO/debug/logs/view?token=noshy-debug-2026
+```
+
+El token por defecto es `noshy-debug-2026`. Para cambiarlo o desactivar el visor, define en el `.env` del servidor (opcional):
+
+```env
+DEBUG_LOGS_TOKEN=un-token-largo-y-seguro
+# o
+DEBUG_LOGS_ENABLED=false
+```
+
+El visor usa Server-Sent Events: muestra los logs en tiempo real (sin recargar), con filtro por nivel y por texto, botón de pausar/limpiar y autoscrol al final. También están disponibles:
+
+```text
+# JSON con los últimos N registros
+https://TU_DOMINIO/debug/logs?token=noshy-debug-2026&limit=200
+
+# Stream SSE crudo (para integrar con otra herramienta)
+https://TU_DOMINIO/debug/logs/stream?token=noshy-debug-2026
+
+# Limpiar el buffer
+DELETE https://TU_DOMINIO/debug/logs?token=noshy-debug-2026
+```
+
+El visor registra prácticamente todo el ciclo de vida:
+
+- **HTTP**: request iniciada (método, ruta, query, IP, origin, user-agent, si trae `Authorization`), request completada (status, duración, tamaño, body parseado), abortos, rutas inexistentes (404), JSON inválido y errores 500 con stack.
+- **Auth**: registro/login exitosos o fallidos, token ausente/inválido/válido.
+- **CommandBus**: comando recibido, validación fallida, sin usuario, duplicado, completado o con error.
+- **Eventos**: eventos del outbox entregados o fallidos, publicación/consumo de RabbitMQ (comandos y eventos).
+- **Infraestructura**: arranque de la API (qué servicios están habilitados), migraciones de Postgres, conexiones/reintentos de MongoDB, llamadas a OpenRouter (modelo, duración, errores).
+
+El buffer conserva los últimos 2.000 registros en memoria del proceso; al reiniciar la API se limpia. Los campos que parezcan contraseñas, tokens, cookies, secretos o API keys se redactan automáticamente (el `Authorization` jamás se imprime en claro).
+
+Para desactivarlo, define `DEBUG_LOGS_ENABLED=false` en el `.env` del servidor y reinicia el servicio. Si el repo o el visor son públicos, cambia `DEBUG_LOGS_TOKEN` por un valor propio y no lo compartas en tickets o capturas.
 
 ## Autenticación
 
@@ -114,17 +157,17 @@ No hay revocación ni refresh token: un token vale hasta que expira.
 
 ## Contratos principales
 
-| Área             | Operaciones                                                                      |
-| ---------------- | -------------------------------------------------------------------------------- |
-| Auth             | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`                        |
-| Plan nutricional | `POST /plans`, `GET /plans`, `GET /plans/active`, `PUT /plans/active`            |
-| Inventario       | `POST/GET /inventory/items`, `PATCH/DELETE /inventory/items/:id`                 |
-| Recetas propias  | `POST/GET /recipes`, `PATCH/DELETE /recipes/:id`, publicar y retirar publicación |
-| Comunidad        | `GET /community/recipes`, `GET /community/recipes/:id`                           |
-| Agente chef      | sesiones, contexto, mensajes y `POST /chef/sessions/:id/respond`                 |
-| Feedback         | `POST/GET /feedback`, `GET /recommendations`                                     |
-| Compras          | `POST /shopping-list` desde recetas guardadas o recetas inline del agente        |
-| Alimentos        | `GET /food/products?q=`, `GET /food/products/:id`, `POST /food/macros`, `GET /food/history` |
+| Área             | Operaciones                                                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auth             | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`                                                                                                     |
+| Plan nutricional | `POST /plans`, `GET /plans`, `GET /plans/active`, `PUT /plans/active`                                                                                         |
+| Inventario       | `POST/GET /inventory/items`, `PATCH/DELETE /inventory/items/:id`                                                                                              |
+| Recetas propias  | `POST/GET /recipes`, `PATCH/DELETE /recipes/:id`, publicar y retirar publicación                                                                              |
+| Comunidad        | `GET /community/recipes`, `GET /community/recipes/:id`                                                                                                        |
+| Agente chef      | sesiones, contexto, mensajes y `POST /chef/sessions/:id/respond`                                                                                              |
+| Feedback         | `POST/GET /feedback`, `GET /recommendations`                                                                                                                  |
+| Compras          | `POST /shopping-list` desde recetas guardadas o recetas inline del agente                                                                                     |
+| Alimentos        | `GET /food/products?q=`, `GET /food/products/:id`, `POST /food/macros`, `GET /food/history`                                                                   |
 | Recetas IA (RAG) | `GET /food/library/browse`, `GET /food/library/recipes?ingredients=`, `GET /food/library/recipes/:id`, `POST /food/recipes/generate`, `GET /food/recipes/:id` |
 
 Los errores de rutas desconocidas y JSON inválido usan el formato:

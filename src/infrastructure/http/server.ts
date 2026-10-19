@@ -14,6 +14,8 @@ import communityRecipesRouter from '../../modules/recipes/http/community-recipes
 import recipeRouter from '../../modules/recipes/http/recipe.routes';
 import shoppingListRouter from '../../modules/shopping-list/http/shopping-list.routes';
 import { errorMiddleware, notFoundMiddleware } from './middlewares/error.middleware';
+import { requestLogger } from './middlewares/request-logger.middleware';
+import { createDebugRouter } from './debug.routes';
 
 // commandBus: pásalo para compartir el mismo bus con el consumer de RabbitMQ (ver entrypoints/api.ts).
 export function createServer(options: Pick<CommandBusOptions, 'chefAgent' | 'foodCatalog' | 'recipeWriter'> & { commandBus?: CommandBus } = {}) {
@@ -23,11 +25,14 @@ export function createServer(options: Pick<CommandBusOptions, 'chefAgent' | 'foo
   const { commandBus, ...dependencies } = options;
   app.set('commandBus', commandBus ?? createCommandBus(dependencies));
   app.use(cors({ origin: environment.corsOrigin }));
+  app.use(requestLogger);
   app.use(express.json({ limit: environment.jsonBodyLimit }));
 
   app.get('/health', (_request, response) => {
     response.status(200).json({ status: 'ok' });
   });
+
+  app.use('/debug', createDebugRouter(environment));
 
   app.use('/auth', authRouter);
   app.use('/chef/sessions', createChefSessionRouter());

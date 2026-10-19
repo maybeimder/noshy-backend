@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import type { CommandBus } from '../../core/commands/command-bus';
+import { applicationLogger } from '../observability/logger';
 
 type UserRequest = Request & { user?: { id: string; name: string; email: string } };
 
@@ -29,16 +30,33 @@ export async function runHandler<TResult>(
     data: input.data
   });
 
+  const requestId = (request as Request & { requestId?: string }).requestId;
+
   switch (outcome.status) {
     case 'handled':
       return { result: outcome.result as TResult };
     case 'invalid':
+      applicationLogger.warn('command.http.invalid', `Comando inválido: ${name} en ${request.method} ${request.originalUrl}`, {
+        requestId,
+        command: name,
+        userId: (request as UserRequest).user?.id,
+        issues: outcome.issues
+      });
       response.status(400).json({ message: 'Datos inválidos.', issues: outcome.issues });
       return null;
     case 'unauthorized':
+      applicationLogger.warn('command.http.unauthorized', `Sin usuario para: ${name} en ${request.method} ${request.originalUrl}`, {
+        requestId,
+        command: name
+      });
       response.status(401).json({ message: 'No autorizado.' });
       return null;
     default:
+      applicationLogger.error('command.http.misconfigured', `Handler HTTP mal configurado: ${name} (${outcome.status})`, {
+        requestId,
+        command: name,
+        status: outcome.status
+      });
       throw new Error(`Handler HTTP mal configurado: ${name} (${outcome.status})`);
   }
 }

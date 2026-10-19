@@ -1,5 +1,6 @@
 import type { Channel, ConsumeMessage } from 'amqplib';
 import type { CommandBus, HandlerOutcome } from '../../../core/commands/command-bus';
+import { applicationLogger } from '../../observability/logger';
 import { fromBuffer, Queues, toBuffer } from './topology';
 
 // Cuerpo de un mensaje de entrada. El nombre del handler viaja en la routing key.
@@ -27,10 +28,12 @@ export class RabbitMqCommandConsumer {
   async start(): Promise<void> {
     const { consumerTag } = await this.channel.consume(this.queue, (message) => void this.onMessage(message), { noAck: false });
     this.consumerTag = consumerTag;
+    applicationLogger.info('rabbitmq.commands.consuming', `Consumiendo comandos de la cola "${this.queue}".`, { queue: this.queue, consumerTag });
   }
 
   async stop(): Promise<void> {
     if (this.consumerTag) await this.channel.cancel(this.consumerTag);
+    applicationLogger.info('rabbitmq.commands.stopped', `Consumer de comandos detenido (${this.queue}).`, { queue: this.queue });
   }
 
   async onMessage(message: ConsumeMessage | null): Promise<void> {
@@ -40,6 +43,13 @@ export class RabbitMqCommandConsumer {
     let outcome: CommandReply;
     try {
       const envelope = fromBuffer<CommandEnvelope>(message.content);
+      applicationLogger.debug('rabbitmq.command.received', `Mensaje de RabbitMQ: ${message.fields.routingKey}`, {
+        routingKey: message.fields.routingKey,
+        messageId: typeof messageId === 'string' ? messageId : undefined,
+        userId: envelope.userId,
+        replyTo: replyTo ?? undefined,
+        redelivered: message.fields.redelivered
+      });
       outcome = await this.bus.dispatch({
         name: message.fields.routingKey,
         userId: envelope.userId,
@@ -48,7 +58,13 @@ export class RabbitMqCommandConsumer {
         messageId: typeof messageId === 'string' ? messageId : undefined
       });
     } catch (error) {
-      console.error(`[rabbitmq] fallo ejecutando ${message.fields.routingKey}`, error);
+      applicationLogger.error('rabbitmq.command.failed', `Fallo ejecutando ${message.fields.routingKey}`, {
+        routingKey: message.fields.routingKey,
+        messageId: typeof messageId === 'string' ? messageId : undefined,
+        redelivered: message.fields.redelivered,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       if (replyTo) {
         this.reply(replyTo, correlationId, { status: 'error', message: error instanceof Error ? error.message : String(error) });
         this.channel.nack(message, false, false);
@@ -59,13 +75,21 @@ export class RabbitMqCommandConsumer {
     }
 
     if (replyTo) {
+      applicationLogger.debug('rabbitmq.command.replied', `Reply RPC para ${message.fields.routingKey} (${outcome.status}).`, {
+        routingKey: message.fields.routingKey,
+        replyTo,
+        status: outcome.status
+      });
       this.reply(replyTo, correlationId, outcome);
       this.channel.ack(message);
       return;
     }
 
     if (outcome.status === 'invalid' || outcome.status === 'unknown_handler' || outcome.status === 'unauthorized') {
-      console.error(`[rabbitmq] mensaje rechazado ${message.fields.routingKey}: ${outcome.status}`);
+      applicationLogger.warn('rabbitmq.command.rejected', `Mensaje rechazado ${message.fields.routingKey}: ${outcome.status}`, {
+        routingKey: message.fields.routingKey,
+        status: outcome.status
+      });
       this.channel.nack(message, false, false);
       return;
     }

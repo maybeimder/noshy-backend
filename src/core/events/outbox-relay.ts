@@ -6,6 +6,7 @@ export interface RelayOptions {
   batchSize?: number;
   maxAttempts?: number;
   onError?: (error: unknown, messageId: string) => void;
+  onDispatched?: (messageId: string, eventName: string, userId: string) => void;
 }
 
 export interface DrainResult {
@@ -21,6 +22,7 @@ export class OutboxRelay {
   private readonly batchSize: number;
   private readonly maxAttempts: number;
   private readonly onError: (error: unknown, messageId: string) => void;
+  private readonly onDispatched?: (messageId: string, eventName: string, userId: string) => void;
   private running: Promise<DrainResult> | null = null;
 
   constructor(
@@ -32,6 +34,7 @@ export class OutboxRelay {
     this.batchSize = options.batchSize ?? 100;
     this.maxAttempts = options.maxAttempts ?? 5;
     this.onError = options.onError ?? ((error, id) => console.error(`[outbox] fallo entregando ${id}`, error));
+    this.onDispatched = options.onDispatched;
   }
 
   // Procesa un lote. Si ya hay uno corriendo, espera ese mismo (sin solapar).
@@ -70,6 +73,7 @@ export class OutboxRelay {
       try {
         await this.dispatcher.dispatch(this.factory.create(message.event));
         await this.outbox.markDispatched(message.id);
+        this.onDispatched?.(message.id, message.event.type, message.event.streamId);
         result.dispatched += 1;
       } catch (error) {
         blockedStreams.add(message.event.streamId);

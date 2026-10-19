@@ -1,6 +1,7 @@
 import type { ConfirmChannel } from 'amqplib';
 import type { DomainEvent } from '../../../core/events/domain-event';
 import type { EventDispatcher } from '../../../core/events/subject';
+import { applicationLogger } from '../../observability/logger';
 import { Exchanges, toBuffer } from './topology';
 
 // Forma del evento en el cable.
@@ -42,7 +43,26 @@ export class RabbitMqEventPublisher implements EventDispatcher {
           type: event.name,
           timestamp: Date.parse(event.occurredAt)
         },
-        (error) => (error ? reject(error instanceof Error ? error : new Error(String(error))) : resolve())
+        (error) => {
+          if (error) {
+            applicationLogger.error('rabbitmq.event.publish_failed', `No se pudo publicar "${event.name}" en el exchange (el outbox lo reintentará).`, {
+              eventId: event.eventId,
+              name: event.name,
+              userId: event.userId,
+              exchange: this.exchange,
+              error: error instanceof Error ? error.message : String(error)
+            });
+            reject(error instanceof Error ? error : new Error(String(error)));
+            return;
+          }
+          applicationLogger.debug('rabbitmq.event.published', `Evento publicado en "${this.exchange}": ${event.name}`, {
+            eventId: event.eventId,
+            name: event.name,
+            userId: event.userId,
+            exchange: this.exchange
+          });
+          resolve();
+        }
       );
     });
   }
