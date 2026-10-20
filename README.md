@@ -363,7 +363,7 @@ Cada módulo repite la misma estructura (`http/` controller+routes+dto · `event
 
 ---
 
-## 4. C4 — Código (los tres flujos que importan)
+## 4. C4 — Código
 
 ### 4.1 Escritura con Transactional Outbox
 
@@ -512,7 +512,7 @@ classDiagram
     OutboxRelay --> EventDispatcher
 ```
 
-### 4.3 Factory Method de agentes chef (existe, sin conectar)
+### 4.3 Factory Method de agentes chef
 
 ```mermaid
 classDiagram
