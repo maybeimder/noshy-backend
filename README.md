@@ -177,3 +177,381 @@ Todo pasa por el `CommandBus` (`food.*` en `modules/food/events/food.handlers.ts
 RecipeNLG es solo para uso educativo/investigación no comercial: se usa como referencia interna, no se redistribuye.
 
 El frontend y Redis están fuera del alcance de este submódulo en la etapa actual.
+
+---
+# DIAGRAMAS
+
+. C1 — Contexto del sistema
+
+```mermaid
+flowchart TB
+    user(["👤 Usuario<br/><i>Persona que planea comidas,<br/>gestiona despensa y recetas</i>"])
+
+    subgraph noshy ["Noshy"]
+        sys["<b>Noshy</b><br/>Planes nutricionales, despensa, recetas,<br/>lista de compras, agente chef con IA"]
+    end
+
+    openrouter["OpenRouter<br/><i>[Sistema externo]</i><br/>LLM para agente chef y redactor de recetas"]
+    mongo[("MongoDB catálogo<br/><i>[Sistema externo, solo lectura]</i><br/>alimentos + recetas RecipeNLG")]
+    deploy["web-deploy / Nginx + Certbot<br/><i>[Infra del homelab]</i><br/>HTTPS y reverse proxy"]
+
+    user -- "usa (HTTPS)" --> sys
+    sys -- "completions JSON (HTTPS)" --> openrouter
+    sys -- "consulta alimentos/recetas (MongoDB wire)" --> mongo
+    deploy -. "publica :3000" .- sys
+
+    classDef person fill:#08427b,color:#fff,stroke:#052e56
+    classDef system fill:#1168bd,color:#fff,stroke:#0b4884
+    classDef ext fill:#999,color:#fff,stroke:#6b6b6b
+    class user person
+    class sys system
+    class openrouter,mongo,deploy ext
+```
+
+---
+
+## 2. C2 — Contenedores
+
+Dos procesos Node.js con **la misma imagen** (`Dockerfile`, `docker-compose.yml`): `api` y `worker`.
+
+```mermaid
+flowchart TB
+    user(["👤 Usuario"])
+
+    subgraph noshy ["Noshy"]
+        spa["<b>Frontend SPA</b><br/><i>React 19 · Vite · TanStack Query · axios</i><br/>noshy-frontend"]
+
+        subgraph backend ["noshy-backend (misma imagen Docker)"]
+            api["<b>API</b><br/><i>Node 22 · Express 5 · Zod</i><br/>entrypoints/api.ts<br/>HTTP + CommandBus + OutboxRelay"]
+            worker["<b>Worker</b><br/><i>Node 22</i><br/>entrypoints/worker.ts<br/>consume eventos → Observers"]
+        end
+
+        pg[("<b>PostgreSQL 17</b><br/>tablas de dominio + <code>event_store</code><br/>+ <code>outbox</code> + <code>processed_messages</code>")]
+        rmq{{"<b>RabbitMQ 4</b><br/>exchanges <code>noshy.commands</code>,<br/><code>noshy.events</code>, <code>noshy.dlx</code>"}}
+    end
+
+    openrouter["OpenRouter<br/><i>[externo]</i>"]
+    mongo[("MongoDB catálogo<br/><i>[externo, RO]</i>")]
+
+    user --> spa
+    spa -- "REST/JSON + JWT<br/>(HTTPS)" --> api
+    api -- "SQL (pg) · 1 transacción por caso de uso<br/>estado + evento + outbox" --> pg
+    api -- "Relay: lee outbox pending (poll 250 ms)<br/>publica evento con confirm" --> rmq
+    rmq -- "cola noshy.commands.api<br/>(comandos RPC / fire-and-forget)" --> api
+    rmq -- "cola noshy.events.observers" --> worker
+    api -- "chat completions" --> openrouter
+    api -- "find/aggregate" --> mongo
+
+    classDef person fill:#08427b,color:#fff
+    classDef cont fill:#438dd5,color:#fff,stroke:#2e6295
+    classDef store fill:#2f6f9f,color:#fff
+    classDef ext fill:#999,color:#fff
+    class user person
+    class spa,api,worker cont
+    class pg,rmq store
+    class openrouter,mongo ext
+```
+
+**Modo degradado (sin variables de entorno):** sin `DATABASE_URL` todo es memoria (`InMemoryEventStore`, repos in-memory); sin `RABBITMQ_URL` el relay entrega directo al `SubjectRegistry` del mismo proceso (`entrypoints/api.ts:117-131`). Por eso los tests corren sin infraestructura.
+
+---
+
+## 3. C3 — Componentes
+
+### 3.1 Contenedor API
+
+```mermaid
+flowchart TB
+    spa["Frontend SPA"]
+    rmqcmd{{"RabbitMQ<br/>noshy.commands.api"}}
+    pg[("PostgreSQL")]
+    rmqev{{"RabbitMQ<br/>noshy.events"}}
+    openrouter["OpenRouter"]
+    mongo[("MongoDB")]
+
+    subgraph api ["API — Express 5"]
+        direction TB
+
+        subgraph adapters_in ["Adaptadores de entrada (infrastructure/)"]
+            http["<b>HTTP server + middlewares</b><br/>http/server.ts · requireAuth ·<br/>request-logger · error.middleware"]
+            ctrl["<b>Controllers + Routes</b><br/>modules/*/http/*.controller.ts<br/>traducen req → comando (runHandler)"]
+            rcons["<b>RabbitMqCommandConsumer</b><br/>event-bus/rabbitmq/"]
+        end
+
+        subgraph core_app ["Aplicación (core/ + modules/)"]
+            bus["<b>CommandBus</b><br/>core/commands/command-bus.ts<br/>valida DTO · identidad ·<br/>idempotencia por messageId"]
+            handlers["<b>Handlers</b><br/>modules/*/events/*.handlers.ts<br/>defineHandler(name, schema, execute)"]
+            services["<b>Servicios / casos de uso</b><br/>auth · plans · inventory · recipes ·<br/>chef-sessions · feedback · food ·<br/>shopping-list"]
+            events["<b>Eventos de dominio</b><br/>modules/*/events/*.events.ts<br/>extienden DomainEvent"]
+            ports["<b>Puertos</b><br/>ChefAgentPort · FoodCatalogPort ·<br/>RecipeWriterPort · Repository*"]
+            uowport["<b>UnitOfWork / EventAppender</b><br/>core/persistence/unit-of-work.ts"]
+        end
+
+        subgraph adapters_out ["Adaptadores de salida (infrastructure/)"]
+            persist["<b>db() — Persistence</b><br/>persistence/persistence.ts<br/>(service locator)"]
+            pgrepos["<b>Postgres repositories + UoW</b><br/>database/postgres-repositories.ts"]
+            pges["<b>PostgresEventStore</b><br/>Event Store + Outbox"]
+            relay["<b>OutboxRelay</b><br/>core/events/outbox-relay.ts<br/>poll 250 ms, reintentos, dead"]
+            pub["<b>RabbitMqEventPublisher</b><br/>(EventDispatcher con publisher-confirm)"]
+            oragent["<b>OpenRouterChefAgent / RecipeWriter</b><br/>ai/"]
+            mcat["<b>MongoFoodCatalog</b><br/>database/mongo/"]
+        end
+    end
+
+    spa --> http --> ctrl --> bus
+    rmqcmd --> rcons --> bus
+    bus --> handlers --> services
+    services --> events
+    services --> ports
+    services --> uowport
+    uowport -.implementa.-> persist
+    persist --> pgrepos --> pg
+    persist --> pges --> pg
+    relay -- "pending()/markDispatched()" --> pges
+    relay --> pub --> rmqev
+    ports -.implementa.-> oragent --> openrouter
+    ports -.implementa.-> mcat --> mongo
+
+    classDef c fill:#85bbf0,color:#000,stroke:#5d82a8
+    classDef ext fill:#999,color:#fff
+    class http,ctrl,rcons,bus,handlers,services,events,ports,uowport,persist,pgrepos,pges,relay,pub,oragent,mcat c
+    class spa,rmqcmd,pg,rmqev,openrouter,mongo ext
+```
+
+### 3.2 Contenedor Worker
+
+```mermaid
+flowchart TB
+    rmq{{"RabbitMQ<br/>noshy.events.observers<br/>(DLX → noshy.dead-letters)"}}
+
+    subgraph worker ["Worker"]
+        cons["<b>RabbitMqEventConsumer</b><br/>ack / nack (1 reintento → DLX)"]
+        fac["<b>DomainEventFactory</b><br/>nombre → clase de evento<br/>(registro: infrastructure/event-bus/events.ts)"]
+        reg["<b>SubjectRegistry</b><br/>1 Subject por usuario (lazy)"]
+        subj["<b>Subject (por usuario)</b><br/>attach / detach / notify"]
+        o1["<b>RecommendationEngine</b><br/>IdempotentObserver<br/>→ RecommendationProjection"]
+        o2["<b>PreferenceEngine</b><br/>IdempotentObserver<br/>gustos / disgustos"]
+        o3["<b>CommunityNotificationEngine</b><br/>IdempotentObserver<br/>feed de recetas públicas"]
+    end
+
+    rmq --> cons --> fac --> reg --> subj
+    subj --> o1
+    subj --> o2
+    subj --> o3
+
+    classDef c fill:#85bbf0,color:#000,stroke:#5d82a8
+    classDef ext fill:#999,color:#fff
+    class cons,fac,reg,subj,o1,o2,o3 c
+    class rmq ext
+```
+
+### 3.3 Módulos de dominio (bounded contexts)
+
+Cada módulo repite la misma estructura (`http/` controller+routes+dto · `events/` handlers+events(+observers) · `*.service.ts` · `*.model.ts` · `*.repository.ts`).
+
+| Módulo | Eventos que emite | Observers |
+|---|---|---|
+| `auth` | `auth.user_registered`, `auth.user_logged_in` | — |
+| `plans` | `plans.nutrition_plan_created/updated` | — |
+| `inventory` | `inventory.item_added/updated/removed` | — |
+| `recipes` | `recipe_created/updated/deleted/published/unpublished` | `CommunityNotificationEngine` |
+| `chef-sessions` | `chef.session_opened`, `chef.message_recorded`, `chef.session_closed`, `chef.session_recovery_required` | `PreferenceEngine` |
+| `feedback` | `feedback.feedback_recorded` | `RecommendationEngine`, `PreferenceEngine` |
+| `food` | `food.recipe_generated`, `food.meal_logged` | (se reproduce con `FoodHistoryProjection`) |
+| `shopping-list` | `shopping.list_generated` | — |
+| `recommendations` | — (solo proyección y observer) | `RecommendationEngine` |
+
+---
+
+## 4. C4 — Código (los tres flujos que importan)
+
+### 4.1 Escritura con Transactional Outbox
+
+Ejemplo: `publishRecipe` (`modules/recipes/recipe.service.ts`).
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Controller / RabbitMqCommandConsumer
+    participant B as CommandBus
+    participant S as recipe.service
+    participant U as UnitOfWork (Postgres)
+    participant R as RecipeRepository
+    participant E as PostgresEventStore
+    participant DB as PostgreSQL
+    participant L as OutboxRelay (API, poll 250ms)
+    participant P as RabbitMqEventPublisher
+    participant X as RabbitMQ noshy.events
+    participant W as Worker (EventConsumer)
+    participant SJ as Subject(userId)
+    participant O as Observers
+
+    C->>B: dispatch({name:'recipes.publish', userId, params})
+    B->>B: schema.safeParse · userId · messageId duplicado?
+    B->>S: execute → publishRecipe()
+    S->>U: transaction(tx => …)
+    activate U
+    U->>DB: BEGIN
+    S->>R: update(recipe, tx)
+    R->>DB: UPDATE recipes
+    S->>E: append([RecipePublishedEvent], tx)
+    E->>DB: INSERT event_store (stream=userId, version+1)
+    E->>DB: INSERT outbox (status='pending')
+    U->>DB: COMMIT  (los 3 cambios o ninguno)
+    deactivate U
+    S-->>C: resultado → HTTP 200
+
+    Note over L,DB: Asíncrono, desacoplado de la request
+    L->>E: pending(100)
+    E->>DB: SELECT outbox JOIN event_store WHERE pending ORDER BY global_position
+    L->>P: dispatch(DomainEvent)
+    P->>X: publish (persistent, confirm)
+    X-->>P: ack del broker
+    L->>E: markDispatched(id)
+    Note over L: si falla: markFailed (attempts++), se bloquea el stream del usuario y a los 5 intentos queda dead
+
+    X->>W: noshy.events.observers
+    W->>SJ: dispatch(event) (DomainEventFactory rehidrata)
+    SJ->>O: update(event, userId)  — IdempotentObserver descarta eventId repetido
+    W->>X: ack
+```
+
+Garantías: **at-least-once** end-to-end (el relay reintenta; el worker puede recibir duplicados) + **idempotencia** (`IdempotentObserver` por `eventId`; `CommandBus` por `messageId` en `processed_messages`) + **orden por usuario** (stream bloqueado mientras uno de sus eventos falla).
+
+### 4.2 Clases: Observer, Outbox, Event Sourcing
+
+```mermaid
+classDiagram
+    direction LR
+
+    class DomainEvent~TPayload~ {
+        <<abstract>>
+        +eventName: string (static)
+        +payload: TPayload
+        +eventId: string
+        +occurredAt: string
+        +userId: string
+    }
+    class RecipePublishedEvent
+    class FeedbackRecordedEvent
+    DomainEvent <|-- RecipePublishedEvent
+    DomainEvent <|-- FeedbackRecordedEvent
+
+    class DomainEventFactory {
+        <<Factory>>
+        -typesByName: Map
+        +register(type)
+        +create(StoredEvent) DomainEvent
+    }
+    DomainEventFactory ..> DomainEvent : instancia por nombre
+
+    class EventDispatcher {
+        <<interface>>
+        +dispatch(event)
+    }
+    class SubjectRegistry {
+        +subjectFor(userId) Subject
+        +dispatch(event)
+    }
+    class Subject {
+        <<Subject GoF>>
+        +userId
+        +attach(Observer)
+        +detach(Observer)
+        +notify(event)
+    }
+    class Observer {
+        <<interface>>
+        +update(event, userId)
+    }
+    class IdempotentObserver {
+        <<abstract, Template Method>>
+        -processed: Set~eventId~
+        +update(event, userId)
+        +reset()
+        #handle(event, userId)*
+        #clearState()*
+    }
+    class RecommendationEngine
+    class PreferenceEngine
+    class CommunityNotificationEngine
+
+    EventDispatcher <|.. SubjectRegistry
+    EventDispatcher <|.. RabbitMqEventPublisher
+    SubjectRegistry "1" o-- "*" Subject
+    Subject "1" o-- "*" Observer
+    Observer <|.. IdempotentObserver
+    IdempotentObserver <|-- RecommendationEngine
+    IdempotentObserver <|-- PreferenceEngine
+    IdempotentObserver <|-- CommunityNotificationEngine
+
+    class OutboxRelay {
+        +drain()
+        +drainAll()
+        +start(intervalMs)
+    }
+    class Outbox {
+        <<interface>>
+        +pending(limit)
+        +markDispatched(id)
+        +markFailed(id, err, max)
+    }
+    class PersistentEventStore {
+        <<interface>>
+        +append(events, tx)
+        +readStream(streamId)
+        +readAll()
+    }
+    class PostgresEventStore
+    class InMemoryEventStore
+    Outbox <|.. PostgresEventStore
+    PersistentEventStore <|.. PostgresEventStore
+    Outbox <|.. InMemoryEventStore
+    OutboxRelay --> Outbox
+    OutboxRelay --> DomainEventFactory
+    OutboxRelay --> EventDispatcher
+```
+
+### 4.3 Factory Method de agentes chef (existe, sin conectar)
+
+```mermaid
+classDiagram
+    direction LR
+    class ChefAgentFactory {
+        <<Creator abstract>>
+        +createAgent()* ChefAgent
+        +restoreAgent(history) ChefAgent
+    }
+    class KetoAgentFactory
+    class VeganAgentFactory
+    class EconomicAgentFactory
+    class ChefAgent {
+        <<Product abstract>>
+        +generatePlan(profile)*
+        +suggestSubstitution(ing, restr)*
+        +learn(interaction)
+        +replay(history)
+    }
+    class KetoAgent
+    class VeganAgent
+    class EconomicAgent
+    class Agents_ts {
+        <<registry>>
+        +assignChefAgent(DietType)
+        +restoreChefAgent(DietType, history)
+    }
+
+    ChefAgentFactory <|-- KetoAgentFactory
+    ChefAgentFactory <|-- VeganAgentFactory
+    ChefAgentFactory <|-- EconomicAgentFactory
+    ChefAgent <|-- KetoAgent
+    ChefAgent <|-- VeganAgent
+    ChefAgent <|-- EconomicAgent
+    KetoAgentFactory ..> KetoAgent : crea
+    VeganAgentFactory ..> VeganAgent : crea
+    EconomicAgentFactory ..> EconomicAgent : crea
+    Agents_ts --> ChefAgentFactory
+```
+
+---
+
