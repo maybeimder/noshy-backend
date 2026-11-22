@@ -1,40 +1,61 @@
 import type { Channel } from 'amqplib';
 
-// Nombres de exchanges y colas. Un solo lugar para cambiarlos.
-export const Exchanges = {
-  // Entrada: routing key = nombre del handler (ej. 'recipes.create'). Topic para poder filtrar por módulo.
-  commands: 'noshy.commands',
-  // Salida: routing key = eventName (ej. 'recipes.recipe_published'). Topic para suscribirse por patrón.
-  events: 'noshy.events',
-  // Todo mensaje que se rinde termina aquí (fanout -> una sola cola de revisión).
-  deadLetters: 'noshy.dlx'
-} as const;
+/**
+ * Nombres de exchanges y colas. Con el prefijo por defecto (`noshy`) son los mismos del backend anterior,
+ * así que un broker que ya los tenga declarados se reutiliza tal cual.
+ *
+ *   outbox relay ──publish(routingKey = tipo del evento)──▶ noshy.events (topic)
+ *                                                              │ '#'
+ *                                                              ▼
+ *                                                  noshy.events.observers ──▶ worker → Subject → Observers
+ *                                                     ▲            │ falla
+ *                         (TTL vencido, vuelve) ──────┘            ├──▶ noshy.events.retry.<n>ms (espera)
+ *                                                                  └──▶ agotó intentos → noshy.dlx (fanout) → noshy.dead-letters
+ */
+export type Topology = {
+  exchanges: { events: string; deadLetters: string };
+  queues: { observers: string; deadLetters: string; retries: { name: string; delayMs: number }[] };
+};
 
-export const Queues = {
-  commands: 'noshy.commands.api',
-  observers: 'noshy.events.observers',
-  deadLetters: 'noshy.dead-letters'
-} as const;
+export const DEFAULT_RETRY_DELAYS_MS = [5_000, 30_000, 120_000, 600_000];
 
-// Idempotente: declarar lo que ya existe con los mismos argumentos no hace nada.
-export async function assertTopology(channel: Channel): Promise<void> {
-  await channel.assertExchange(Exchanges.deadLetters, 'fanout', { durable: true });
-  await channel.assertQueue(Queues.deadLetters, { durable: true });
-  await channel.bindQueue(Queues.deadLetters, Exchanges.deadLetters, '');
-
-  await channel.assertExchange(Exchanges.commands, 'topic', { durable: true });
-  await channel.assertQueue(Queues.commands, { durable: true, deadLetterExchange: Exchanges.deadLetters });
-  await channel.bindQueue(Queues.commands, Exchanges.commands, '#');
-
-  await channel.assertExchange(Exchanges.events, 'topic', { durable: true });
-  await channel.assertQueue(Queues.observers, { durable: true, deadLetterExchange: Exchanges.deadLetters });
-  await channel.bindQueue(Queues.observers, Exchanges.events, '#');
+export function topology(prefix = 'noshy', retryDelaysMs: readonly number[] = DEFAULT_RETRY_DELAYS_MS): Topology {
+  return {
+    exchanges: {
+      // Routing key = tipo del evento (ej. `pantry.items_added`): se puede suscribir por patrón (`pantry.*`).
+      events: `${prefix}.events`,
+      // Todo mensaje que se rinde termina aquí (fanout → una sola cola de revisión).
+      deadLetters: `${prefix}.dlx`,
+    },
+    queues: {
+      observers: `${prefix}.events.observers`,
+      deadLetters: `${prefix}.dead-letters`,
+      // El nombre lleva el retardo: cambiar los tiempos crea colas nuevas en vez de chocar con las viejas.
+      retries: retryDelaysMs.map((delayMs) => ({ name: `${prefix}.events.retry.${delayMs}ms`, delayMs })),
+    },
+  };
 }
 
-export function toBuffer(value: unknown): Buffer {
-  return Buffer.from(JSON.stringify(value));
+/** Idempotente: declarar lo que ya existe con los mismos argumentos no hace nada. */
+export async function assertTopology(channel: Channel, t: Topology): Promise<void> {
+  await channel.assertExchange(t.exchanges.deadLetters, 'fanout', { durable: true });
+  await channel.assertQueue(t.queues.deadLetters, { durable: true });
+  await channel.bindQueue(t.queues.deadLetters, t.exchanges.deadLetters, '');
+
+  await channel.assertExchange(t.exchanges.events, 'topic', { durable: true });
+  await channel.assertQueue(t.queues.observers, { durable: true, deadLetterExchange: t.exchanges.deadLetters });
+  await channel.bindQueue(t.queues.observers, t.exchanges.events, '#');
+
+  // Colas de espera: sin consumidores. Al vencer el TTL, RabbitMQ devuelve el mensaje a la cola de observers.
+  for (const r of t.queues.retries) {
+    await channel.assertQueue(r.name, {
+      durable: true,
+      messageTtl: r.delayMs,
+      deadLetterExchange: '',
+      deadLetterRoutingKey: t.queues.observers,
+    });
+  }
 }
 
-export function fromBuffer<T>(content: Buffer): T {
-  return JSON.parse(content.toString('utf8')) as T;
-}
+export const ATTEMPT_HEADER = 'x-noshy-attempt';
+export const ERROR_HEADER = 'x-noshy-last-error';

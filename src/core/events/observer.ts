@@ -1,27 +1,60 @@
-import type { DomainEvent } from './domain-event';
+import type { EventType } from './catalog.js';
+import type { DomainEvent } from './domain-event.js';
 
-// GoF Observer: reacciona a lo que ocurre en el Subject de un usuario.
+/**
+ * GoF Observer: reacciona a lo que pasa en el Subject (el stream de un usuario).
+ * `name` es estable y único: con él se registra qué eventos ya procesó (idempotencia).
+ */
 export interface Observer {
-  update(event: DomainEvent<any>, userId: string): void | Promise<void>;
+  readonly name: string;
+  interestedIn(type: EventType): boolean;
+  update(event: DomainEvent): Promise<void>;
 }
 
-// La entrega del outbox es at-least-once: un evento puede llegar más de una vez.
-// Esta base descarta duplicados por eventId (Template Method: las subclases solo implementan handle).
-export abstract class IdempotentObserver implements Observer {
-  private readonly processed = new Set<string>();
+/**
+ * Observer que es una proyección reconstruible: se puede borrar su estado y volver a llenarlo
+ * reproduciendo el event store (`pnpm events:replay`). Los que tienen efectos externos
+ * (push, emails, moderación) no lo son.
+ */
+export interface ReplayableObserver extends Observer {
+  readonly replayable: true;
+  /** Borra la proyección de un usuario o, sin `streamId`, la de todos. */
+  reset(streamId?: string): Promise<void>;
+}
 
-  async update(event: DomainEvent<any>, userId: string): Promise<void> {
-    if (this.processed.has(event.eventId)) return;
-    await this.handle(event, userId);
-    this.processed.add(event.eventId);
+export const isReplayable = (o: Observer): o is ReplayableObserver => (o as Partial<ReplayableObserver>).replayable === true;
+
+type Handler<T extends EventType> = (event: DomainEvent<T>) => Promise<void>;
+
+/**
+ * Base de los observers concretos: cada subclase declara en su constructor a qué eventos reacciona
+ * con `this.on(tipo, handler)`. `update` despacha al handler del tipo; los demás eventos se ignoran.
+ */
+export abstract class EventObserver implements Observer {
+  abstract readonly name: string;
+  private readonly handlers = new Map<EventType, Handler<EventType>>();
+
+  protected on<T extends EventType>(type: T, handler: Handler<T>): this {
+    if (this.handlers.has(type)) throw new Error(`${this.constructor.name} ya tiene un handler para ${type}`);
+    this.handlers.set(type, handler as unknown as Handler<EventType>);
+    return this;
   }
 
-  // Vuelve al estado inicial antes de reconstruir la proyección con un replay.
-  reset(): void {
-    this.processed.clear();
-    this.clearState();
+  /** Mismo handler para varios tipos. */
+  protected onEach(types: readonly EventType[], handler: Handler<EventType>): this {
+    for (const t of types) this.on(t, handler);
+    return this;
   }
 
-  protected abstract handle(event: DomainEvent<any>, userId: string): void | Promise<void>;
-  protected abstract clearState(): void;
+  interestedIn(type: EventType): boolean {
+    return this.handlers.has(type);
+  }
+
+  get interests(): EventType[] {
+    return [...this.handlers.keys()];
+  }
+
+  async update(event: DomainEvent): Promise<void> {
+    await this.handlers.get(event.type)?.(event);
+  }
 }

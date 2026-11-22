@@ -1,69 +1,50 @@
-import type { ConfirmChannel } from 'amqplib';
-import type { DomainEvent } from '../../../core/events/domain-event';
-import type { EventDispatcher } from '../../../core/events/subject';
-import { applicationLogger } from '../../observability/logger';
-import { Exchanges, toBuffer } from './topology';
+import type { ConfirmChannel, Options } from 'amqplib';
+import type { DomainEventFactory } from '../../../core/events/domain-event.factory.js';
+import type { DomainEvent } from '../../../core/events/domain-event.js';
+import type { EventDispatcher } from '../../../core/events/transport.js';
+import type { RabbitMqConnection } from './rabbitmq.connection.js';
+import type { Topology } from './topology.js';
 
-// Forma del evento en el cable.
-export interface EventEnvelope {
-  eventId: string;
-  name: string;
-  userId: string;
-  payload: unknown;
-  occurredAt: string;
+export class BrokerUnavailableError extends Error {
+  constructor() {
+    super('RabbitMQ no está conectado');
+    this.name = 'BrokerUnavailableError';
+  }
 }
 
-// Dispatcher del OutboxRelay cuando hay RabbitMQ: en vez de notificar observers en este proceso,
-// publica el evento en el exchange 'noshy.events'. Solo resuelve cuando el broker confirma; si no
-// confirma, el relay deja el mensaje del outbox 'pending' y lo reintenta (nunca se pierde).
+/** Publica en un canal con confirms y resuelve solo cuando el broker confirma. */
+export function publishConfirmed(ch: ConfirmChannel, exchange: string, routingKey: string, body: Buffer, options: Options.Publish): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      ch.publish(exchange, routingKey, body, options, (err) => (err ? reject(err instanceof Error ? err : new Error(String(err))) : resolve()));
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * Dispatcher del relay con RabbitMQ: publica cada evento en el exchange `noshy.events` con routing key
+ * igual a su tipo. Solo resuelve con el ack del broker; si falla, el outbox lo deja pendiente y reintenta.
+ */
 export class RabbitMqEventPublisher implements EventDispatcher {
   constructor(
-    private readonly channel: ConfirmChannel,
-    private readonly exchange: string = Exchanges.events
+    private readonly conn: RabbitMqConnection,
+    private readonly factory: DomainEventFactory,
+    private readonly topology: Topology,
   ) {}
 
-  dispatch(event: DomainEvent<any>): Promise<void> {
-    const envelope: EventEnvelope = {
-      eventId: event.eventId,
-      name: event.name,
-      userId: event.userId,
-      payload: event.payload,
-      occurredAt: event.occurredAt
-    };
-
-    return new Promise((resolve, reject) => {
-      this.channel.publish(
-        this.exchange,
-        event.name,
-        toBuffer(envelope),
-        {
-          persistent: true,
-          contentType: 'application/json',
-          messageId: event.eventId,
-          type: event.name,
-          timestamp: Date.parse(event.occurredAt)
-        },
-        (error) => {
-          if (error) {
-            applicationLogger.error('rabbitmq.event.publish_failed', `No se pudo publicar "${event.name}" en el exchange (el outbox lo reintentará).`, {
-              eventId: event.eventId,
-              name: event.name,
-              userId: event.userId,
-              exchange: this.exchange,
-              error: error instanceof Error ? error.message : String(error)
-            });
-            reject(error instanceof Error ? error : new Error(String(error)));
-            return;
-          }
-          applicationLogger.debug('rabbitmq.event.published', `Evento publicado en "${this.exchange}": ${event.name}`, {
-            eventId: event.eventId,
-            name: event.name,
-            userId: event.userId,
-            exchange: this.exchange
-          });
-          resolve();
-        }
-      );
+  async dispatch(event: DomainEvent): Promise<void> {
+    const ch = this.conn.current?.publish;
+    if (!ch) throw new BrokerUnavailableError();
+    await publishConfirmed(ch, this.topology.exchanges.events, event.type, Buffer.from(JSON.stringify(this.factory.toEnvelope(event))), {
+      persistent: true,
+      contentType: 'application/json',
+      messageId: event.id,
+      type: event.type,
+      timestamp: Math.floor(event.occurredAt.getTime() / 1000),
+      appId: 'noshy-backend',
+      headers: { 'x-stream-id': event.streamId, 'x-stream-version': event.version },
     });
   }
 }

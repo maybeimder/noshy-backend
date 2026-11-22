@@ -1,222 +1,225 @@
-# Noshy Backend
+# Noshy · Backend
 
-API HTTP de Noshy para el MVP web. Está construida con Node.js, TypeScript, Express 5 y Zod.
+API de Noshy según el **Contrato API v0.3** (secciones 01 · Bienvenida y onboarding y 02 · La experiencia diaria).
+Fastify + TypeScript, Postgres (Drizzle) para lo transaccional y Mongo para lo documental. **Event driven**: event store y transactional outbox en Postgres, RabbitMQ como bus y observers (GoF Observer) que reaccionan; las piezas intercambiables se crean con Factories (GoF Factory).
 
-## Desarrollo
+- Base: `/api/v1` · Auth: `Authorization: Bearer <JWT>` (el `userId` sale del claim `sub`)
+- Respuestas `{ data, meta? }` · Errores `{ error: { code, message, details? } }`
+- Documentación OpenAPI generada desde los esquemas zod: `GET /docs`
 
-Desde `backend/`:
-
-```bash
-pnpm install
-pnpm dev
-```
-
-Comprobaciones:
-
-```bash
-pnpm test
-pnpm build
-```
-
-Sin variables de entorno todo corre en memoria (útil para tests). Para la arquitectura completa:
+## Arranque rápido
 
 ```powershell
-pnpm infra:up                     # Postgres (puerto 5433) + RabbitMQ (5672, panel en :15672)
-Copy-Item .env.example .env       # y completa DATABASE_URL, RABBITMQ_URL, JWT_SECRET, OPENROUTER_API_KEY
-pnpm dev                          # API: migra al arrancar, HTTP + comandos por RabbitMQ + relay del outbox
-pnpm dev:worker                   # Worker: consume eventos y alimenta los observers
+pnpm install
+Copy-Item .env.example .env     # JWT_SECRET (32+ caracteres), MONGO_URL del homelab y, si quieres chef con IA, OPENROUTER_API_KEY
+pnpm infra:up                   # Postgres (5433) + RabbitMQ (5672, panel en :15672). Mongo: el del homelab
+pnpm dev                        # http://localhost:3000  ·  docs en /docs
 ```
 
-La API, el worker y `pnpm db:migrate` cargan `backend/.env` al arrancar (las variables de la terminal tienen prioridad). Los tests no lo leen.
+Con `RUN_WORKERS=true` (el valor de `.env.example`) `pnpm dev` hace todo en un proceso: publica en RabbitMQ, consume y corre los observers. Para separarlo como en producción, pon `RUN_WORKERS=false` y corre `pnpm dev:worker` en otra terminal.
 
-Para probar la API a mano usa la colección de [Bruno](bruno/README.md) (46 requests del flujo MVP, con guía paso a paso). Desde la terminal: `pnpm test:bruno` con la API corriendo.
-
-Con `DATABASE_URL` y `RABBITMQ_URL` definidas, `pnpm test` también corre los tests de integración contra Postgres y RabbitMQ reales (usan schemas y exchanges temporales y los borran al terminar).
+Al arrancar, la API aplica las migraciones (`drizzle/*.sql`) y, si la base está vacía, carga el catálogo: tiendas, platos, ingredientes, productos, precios y recetas. Se desactiva con `MIGRATE_ON_START=false` y `SEED_ON_START=false`. También están `pnpm db:migrate` y `pnpm db:seed`; ojo: `db:seed` reescribe likes y ratings del catálogo.
 
 ## Despliegue con Docker (homelab / server)
 
-Todo corre en contenedores en **modo dev** (`tsx watch`, sin compilar): Postgres, RabbitMQ, la API y el worker, con reinicio automático. Solo hace falta Docker y git (no Node ni pnpm).
+Igual que antes: todo en contenedores en **modo dev** (`tsx watch`), con `api` como primer servicio para `web-deploy` y todo escuchando en `127.0.0.1`.
 
 ```bash
-git clone --recurse-submodules -b dev https://github.com/maybeimder/noshy.git
-cd noshy/backend
-cp .env.example .env    # define JWT_SECRET (para que los tokens sobrevivan reinicios) y OPENROUTER_API_KEY
+cp .env.example .env    # JWT_SECRET de 32+ caracteres y OPENROUTER_API_KEY
+docker compose up -d --build
 ```
 
-**Con dominio + HTTPS** (script `web-deploy`, Nginx + Certbot): desde `noshy/backend`,
+- Servicios: `api` (HTTP, migra, carga el catálogo y publica en RabbitMQ), `worker` (consume `noshy.events.observers` → observers, relay de respaldo y scheduler), `postgres` (host 5433) y `rabbitmq` (host 5672, panel en http://localhost:15672, usuario `noshy`).
+- `./src` y `./drizzle` están montados: tras un `git pull`, `tsx watch` recarga solo. Si cambian dependencias o el Dockerfile, el workflow `deploy-dev` reconstruye la imagen.
+- Archivos (facturas, fotos, exportaciones) viven en el volumen `noshy-storage`; Postgres en `noshy-postgres-data`; RabbitMQ en `noshy-rabbitmq-data`.
+- **Mongo no va en el compose**: se usa el del homelab (`MONGO_URL` en `.env`, ej. `mongodb://…@192.168.1.10:27017/food?authSource=food`). El backend usa la base de la URL (`food`) salvo que definas `MONGO_DB`; sus colecciones (`chef_threads`, `chef_messages`, `cooking_events`, `user_signals`, `insights`, `receipt_scans`) no chocan con las del catálogo (`products_slim`, `recipes_raw`). Desde los contenedores, `192.168.1.10` se alcanza por la red local, así que Mongo debe escuchar en esa IP y no solo en `127.0.0.1`.
+- Respaldo: `docker exec noshy-postgres pg_dump -U noshy noshy > backup.sql` (Mongo se respalda donde vive, en el homelab).
 
-```bash
-sudo web-deploy api.tudominio.com -e tu@email.com
-# cuando pregunte el puerto HOST: 3000
+| Script | Qué hace |
+| --- | --- |
+| `pnpm dev` | API con recarga en caliente. Si `RUN_WORKERS=true`, también consume eventos y corre el scheduler. |
+| `pnpm dev:worker` / `pnpm worker` | Solo workers (consumer de RabbitMQ + relay + scheduler), sin HTTP. Para escalar por separado. |
+| `pnpm events:replay -- --observer learning --reset` | Reconstruye una proyección desde el event store (`--stream <userId>` para un solo usuario). |
+| `pnpm rabbit:up` / `pnpm rabbit:down` | Solo RabbitMQ. |
+| `pnpm build` / `pnpm start` | Compila a `dist/` y arranca. |
+| `pnpm db:generate` | Genera una migración nueva a partir de los `*.model.ts` de los módulos. |
+| `pnpm test` | Unitarias, integración de eventos y e2e del recorrido completo (necesita Postgres y Mongo; ver abajo). |
+| `pnpm test:rabbit` | La misma suite, con los eventos pasando por un RabbitMQ real. |
+| `pnpm typecheck` | `tsc --noEmit`. |
+
+### Tests
+
+`test/e2e/journey.test.ts` recorre la app de punta a punta como Diana: registro → onboarding → Tu despensa → Inicio → chef (JSON y SSE) → receta adaptada → lista de compras → modo cocina → factura → comunidad → crear receta → perfil. Verifica el contrato y los efectos que llegan por eventos.
+
+`test/integration/events.test.ts` prueba la infraestructura de eventos: Factory, versiones por stream, rollback, concurrencia, append-only, relay (orden, bloqueo por usuario, `dead`), Subject/Observer (idempotencia y orden) y replay. Si hay un RabbitMQ en `TEST_RABBITMQ_URL` (por defecto `amqp://guest:guest@localhost:5672`), también: entrega de punta a punta, reintentos por las colas de espera, dead letters y broker caído.
+
+Usa `TEST_DATABASE_URL` (por defecto `postgres://postgres@localhost:5432/noshy_test`) y `TEST_MONGO_URL` + `TEST_MONGO_DB` (por defecto `mongodb://127.0.0.1:27017` y `noshy_test`). En cada corrida se recrea la base de Postgres y se vacían **solo** las colecciones del backend en la base de Mongo de prueba; si `TEST_MONGO_DB` no lleva «test» en el nombre, los tests se niegan a correr (así nunca tocan `food`). Contra el Mongo del homelab: un usuario con `readWrite` sobre `noshy_test` y `TEST_MONGO_URL=mongodb://usuario:clave@192.168.1.10:27017/?authSource=…`. Con el compose: `TEST_DATABASE_URL=postgres://noshy:noshy@localhost:5433/noshy_test` y `TEST_RABBITMQ_URL=amqp://noshy:noshy@localhost:5672` (crea antes la base `noshy_test`). Las colas de prueba usan el prefijo `noshy_test`, así que no tocan las de desarrollo.
+
+## Estructura
+
+Por módulos, como el backend anterior. Cada módulo agrupa todo lo suyo y expone su API pública en `index.ts`;
+las dependencias entre módulos se arman en `container.ts`.
+
+```
+src/
+  modules/<módulo>/
+    <módulo>.service.ts       lógica de negocio; emite eventos por el outbox
+    <módulo>.repository.ts    acceso a datos (Drizzle / Mongo)
+    <módulo>.model.ts         tablas Drizzle del módulo (fuente de las migraciones)
+    <módulo>.providers.ts     servicios externos del módulo (OAuth, correo, OCR, motor del chef, moderación, push)
+    http/                     <módulo>.routes.ts · .controller.ts · .dto.ts (zod) · .middleware.ts
+    events/                   <módulo>.observers.ts (GoF Observer: cómo reacciona a eventos de otros módulos)
+    index.ts                  API pública del módulo
+
+    account/        account.model, account.providers, account.repository, account.service  · http/ events/
+    auth/           auth.model, auth.providers, auth.repository, auth.service, token.service  · http/
+    authoring/      authoring.service  · http/
+    catalog/        catalog.model, catalog.repository, catalog.service, ingredient-search.service  · http/
+    chef/           chef.providers, chef.repository, chef.service, insights.service  · http/ events/
+    community/      community.model, community.providers, community.service  · http/ events/
+    cooking/        cooking.model, cooking.repository, cooking.service, cooking.snapshots, kitchen.service  · http/
+    home/           days.service, home.service, meals.model, meals.repository, nudges.model, nudges.repository, nudges.service  · http/ events/
+    media/          media.model, media.repository, media.service  · http/
+    menus/          menus.model, menus.repository, menus.service  · http/ events/
+    notifications/  notifications.providers events/
+    onboarding/     onboarding.model, onboarding.service, preferences.repository, preferences.service  · http/
+    pantry/         pantry-setup.service, pantry.model, pantry.repository, pantry.service  · http/
+    profile/        profile.service  · http/
+    receipts/       receipts.model, receipts.providers, receipts.repository, receipts.service  · http/ events/
+    recipes/        nutrition.service, recipes.model, recipes.providers, recipes.repository, recipes.service, recommendations.service  · http/
+    shopping/       shopping.model, shopping.repository, shopping.service  · http/ events/
+
+  core/
+    events/                   catálogo de eventos, DomainEvent + DomainEventFactory, event store, outbox + relay,
+                              Subject/Observer, ledger de idempotencia, replay
+    domain/                   reglas puras y testeables: nutrición, restricciones, cantidades, franjas, racha, puntaje
+    shared/                   errores, ids con prefijo, cursores, tiempo y zona horaria, dto comunes
+  infrastructure/
+    config/env.ts             variables de entorno validadas con zod
+    database/                 postgres (cliente, migrador, schema.ts que junta los modelos), mongo (cliente, colecciones), seed
+    event-bus/                EventTransportFactory, register-observers, rabbitmq/ (topología, conexión, publisher, consumer)
+    http/                     server.ts (Fastify, /health, /docs), routes.ts, middlewares/ (errores, idempotencia, zona horaria)
+    ai/openrouter.client.ts   cliente de OpenRouter
+    storage/                  storage local con URLs firmadas
+    workers/scheduler.ts      tareas periódicas con advisory lock
+    providers.factory.ts      GoF Factory de los providers de todos los módulos
+  entrypoints/
+    api.ts                    HTTP (+ consumer y scheduler si RUN_WORKERS=true)
+    worker.ts                 consumer de RabbitMQ + relay + scheduler
+    replay-events.ts          reconstruir proyecciones desde el event store
+  container.ts                raíz de composición
 ```
 
-**Sin dominio** (solo red local): pon `API_BIND=0.0.0.0` en `.env` y `docker compose up -d --build`; la API queda en `http://<ip-del-server>:3000`.
+## Bases de datos
 
-- `api` es el primer servicio del compose a propósito: `web-deploy` genera su override de puertos para el primero. Ese override (`docker-compose.override.yml`) está en `.gitignore`.
-- Todo escucha en `127.0.0.1` del server; con `web-deploy` solo Nginx (80/443) queda expuesto. Para el panel de RabbitMQ desde tu PC: `ssh -L 15672:localhost:15672 <server>` y abre http://localhost:15672 (`noshy` / `noshy`).
-- La API aplica las migraciones al arrancar. Los datos viven en el volumen `noshy-postgres-data`.
-- CORS queda en `*` mientras no definas `CORS_ORIGIN`, así que el frontend puede llamar desde cualquier IP.
-- `./src` está montado en los contenedores: tras un `git pull`, `tsx watch` recarga solo en Linux. Si no lo hace (o cambiaron dependencias), usa la tabla de abajo.
+| Postgres (transaccional, relacional) | Mongo del homelab (documental, alto volumen) |
+| --- | --- |
+| users, oauth_identities, refresh_tokens | chef_threads, chef_messages (bloques tipados) |
+| user_preferences, onboarding_drafts | cooking_events (telemetría de modo cocina) |
+| stores, dishes, ingredients, ingredient_substitutes, products, product_prices | user_signals, insights (aprendizaje del chef) |
+| recipes, recipe_ingredients, recipe_adaptations, adaptation_proposals | |
+| saved_recipes, liked_recipes, comments, follows | receipt_scans (salida cruda del OCR) |
+| pantry_items, shopping_lists, shopping_list_items, shopping_list_recipes | |
+| meal_logs, menus, menu_entries, cooking_sessions | |
+| receipts, receipt_items, media, nudges | |
+| idempotency_keys, **event_store**, **outbox**, **processed_events** | |
 
-| Tarea                                    | Comando                                                          |
-| ---------------------------------------- | ---------------------------------------------------------------- |
-| Actualizar código (solo `src/`)          | `git pull && docker compose restart api worker`                  |
-| Actualizar dependencias (`package.json`) | `git pull && docker compose up -d --build`                       |
-| Ver logs                                 | `docker compose logs -f api worker`                              |
-| Estado                                   | `docker compose ps`                                              |
-| Reiniciar                                | `docker compose restart api worker`                              |
-| Apagar (conserva los datos)              | `docker compose down`                                            |
-| Respaldar la base                        | `docker exec noshy-postgres pg_dump -U noshy noshy > backup.sql` |
+## Event driven
 
-Para desarrollo en tu máquina sigue usando `pnpm infra:up` (solo Postgres + RabbitMQ) y `pnpm dev`.
-
-`pnpm build` + `pnpm start` también funcionan (compilan a `dist/` como CommonJS), pero el despliegue actual no los usa.
-
-## Arquitectura
-
-Orientada a eventos, con Transactional Outbox y Event Sourcing:
-
-- **Entrada única:** los controllers HTTP y el consumer de RabbitMQ despachan al mismo `CommandBus` (`modules/*/events/*.handlers.ts`), que valida con los mismos DTOs y llama a los mismos servicios.
-- **Transactional Outbox:** cada mutación guarda su estado, su evento (`event_store`) y su mensaje (`outbox`) en una sola transacción. El `OutboxRelay` entrega el outbox a RabbitMQ (`noshy.events`) o, sin RabbitMQ, a los observers del mismo proceso.
-- **Event Sourcing:** las proyecciones (recomendaciones, preferencias, comunidad) se reconstruyen reproduciendo `event_store`.
-- **GoF:** Observer (`Subject` por usuario y observers idempotentes) y Factory Method (agentes chef por tipo de dieta).
-
-## Configuración
-
-Variables opcionales:
-
-| Variable             | Valor por defecto | Descripción                                                                             |
-| -------------------- | ----------------- | --------------------------------------------------------------------------------------- |
-| `PORT`               | `3000`            | Puerto HTTP entre 1 y 65535                                                             |
-| `CORS_ORIGIN`        | `*`               | Origen permitido por CORS                                                               |
-| `JSON_BODY_LIMIT`    | `1mb`             | Límite de cuerpos JSON, por ejemplo `512kb` o `2mb`                                     |
-| `DEBUG_LOGS_ENABLED` | `true`            | Visor remoto de logs. `false`/`0`/`no`/`off` lo desactiva                                |
-| `DEBUG_LOGS_TOKEN`   | `noshy-debug-2026`| Token (≥16 caracteres) para consultar los logs                                           |
-| `DATABASE_URL`       | —                 | Postgres (`postgres://...`). Sin ella, estado en memoria                                |
-| `RABBITMQ_URL`       | —                 | RabbitMQ (`amqp://...`). Sin ella, eventos en proceso                                   |
-| `JWT_SECRET`         | aleatorio         | Secreto (≥32 caracteres) para firmar los JWT. **Obligatorio con `NODE_ENV=production`** |
-| `JWT_EXPIRES_IN`     | `7d`              | Vigencia del token, por ejemplo `15m`, `12h` o `7d`                                     |
-| `OPENROUTER_API_KEY` | —                 | Activa el agente chef con OpenRouter. Sin ella, `respond` devuelve 503                  |
-| `OPENROUTER_MODEL`   | modelos `:free`   | Lista separada por comas; el primero es el preferido y el resto respaldo                |
-| `MONGO_URL`          | —                 | Catálogo de alimentos y recetas (Mongo de solo lectura). Sin ella, `/food` devuelve 503 |
-
-La configuración se valida al iniciar mediante `src/infrastructure/config/env.ts`.
-
-## Logs remotos de diagnóstico
-
-**Vienen activados por defecto**: basta hacer push a `dev` y el servidor auto-deploya con el visor encendido. Abre en el navegador el **visor en vivo**:
-
-```text
-https://TU_DOMINIO/debug/logs/view?token=noshy-debug-2026
+```
+ caso de uso ──misma transacción──► tablas de estado
+      │                              + event_store (append-only, versión por usuario)
+      │                              + outbox (entrega pendiente)
+      ▼
+ OutboxRelay (api y worker · FOR UPDATE SKIP LOCKED · orden por usuario · backoff · dead)
+      │  publish con confirms, routing key = tipo del evento
+      ▼
+ RabbitMQ ── noshy.events (topic) ──#──► noshy.events.observers
+                                              │            │ falla un observer
+                                              │            ├─► noshy.events.retry.{5s,30s,2m,10m} ─┐ (TTL: vuelve)
+                                              │            └─► agotó → noshy.dlx ─► noshy.dead-letters
+                                              ▼                                                     │
+ worker: consumer ─► SubjectRegistry ─► Subject del usuario ─► Observers ◄─────────────────────────┘
+                                         (en orden)            (idempotentes vía processed_events;
+                                                                 pueden emitir más eventos)
 ```
 
-El token por defecto es `noshy-debug-2026`. Para cambiarlo o desactivar el visor, define en el `.env` del servidor (opcional):
+- **Event store** (`event_store`): cada evento queda con `streamId` (el usuario), `version` (1, 2, 3… dentro del stream) y `globalPosition`. Un trigger impide los UPDATE. Es la fuente para reconstruir proyecciones (`pnpm events:replay`) y para «Descargar mis datos» (sección `activity`). Al borrar la cuenta se purga el stream y queda solo la lápida `user.deleted`.
+- **Transactional outbox** (`outbox`): se escribe en la misma transacción que el evento y el cambio de estado. Un evento existe y se entrega **si y solo si** la transacción se confirmó. Para versionar sin choques, `append` toma un advisory lock por stream (`pg_advisory_xact_lock`), con `lock_timeout` de 10 s.
+- **Relay**: la API publica apenas confirma (kick) y el worker barre lo que quede (poll). Si RabbitMQ está caído, los eventos esperan en el outbox con backoff y salen cuando vuelve; tras `OUTBOX_MAX_ATTEMPTS` quedan `dead` para revisión.
+- **RabbitMQ**: misma topología del backend anterior (`noshy.events`, `noshy.events.observers`, `noshy.dlx`, `noshy.dead-letters`) más las colas de espera. Publisher confirms, mensajes persistentes, reconexión automática (vuelve a declarar la topología y a suscribirse).
+- **GoF Observer**: `EventSubject` (uno por usuario, creado bajo demanda por `SubjectRegistry`) notifica a los `Observer` interesados y serializa los eventos del mismo usuario. Si un observer falla, se reintenta el mensaje y los que ya lo procesaron se lo saltan (`processed_events`). Los observers viven en `src/modules/<módulo>/events/` y extienden `EventObserver` (`this.on('tipo', handler)`).
+- **GoF Factory**: `DomainEventFactory` crea y rehidrata eventos (desde el store o desde el mensaje de RabbitMQ) y rechaza tipos desconocidos; `EventTransportFactory` elige RabbitMQ o en proceso; `ProviderFactory` elige storage, OCR, chef (OpenRouter o reglas), etc.
+- **Sin broker** (`EVENT_TRANSPORT=in-process` o sin `RABBITMQ_URL`): el relay notifica a los Subjects en el mismo proceso. Sirve para tests y para una sola máquina; en producción se avisa en el log.
 
-```env
-DEBUG_LOGS_TOKEN=un-token-largo-y-seguro
-# o
-DEBUG_LOGS_ENABLED=false
-```
+**Regla de diseño:** lo que la respuesta del contrato necesita se hace síncrono dentro de la transacción del caso de uso (ej. terminar de cocinar devuelve el día actualizado y lo descontado de la despensa). Lo derivado va por eventos.
 
-El visor usa Server-Sent Events: muestra los logs en tiempo real (sin recargar), con filtro por nivel y por texto, botón de pausar/limpiar y autoscrol al final. También están disponibles:
+| Evento | Observers |
+| --- | --- |
+| `user.registered` | `account`: envía el código de verificación |
+| `onboarding.completed` | `menus`: genera el primer menú |
+| `menu.generated` | `shopping`: arma la lista con lo que falta · `notifications`: «Tu menú está listo» |
+| `menu.entry_added` / `_changed` / `_removed` | `shopping`: la lista sigue al menú (agrega y quita recetas) |
+| `data_export.requested` | `account`: arma el JSON con todos los datos (incluido el stream de eventos) y avisa por correo |
+| `user.deleted` | `account`: borra Mongo, archivos y el stream del event store (las recetas publicadas quedan retiradas y anónimas) |
+| `receipt.uploaded` | `receipts`: OCR + matching → despensa → `receipt.parsed` / `receipt.failed` |
+| `receipt.parsed` | `chef`: mensaje proactivo («Vi que compraste pollo y tomate el martes») · `learning`: señales de marca → insights · `notifications` |
+| `cooking.completed` | `learning`: señales → insights («Los martes prefieres platos cremosos») · `nudges`: avisos (variedad) |
+| `pantry.*` | `nudges`: recalcula avisos de vencimiento («Tu espinaca vence mañana») |
+| `pantry.item_removed` (con «agregar a la lista») | `shopping`: agrega el ingrediente a la lista de compras |
+| `shopping.item_swapped` | `learning`: señal de marca preferida |
+| `recipe.publish_requested` | `community`: moderación → estructura para modo cocina → `recipe.published` / `recipe.rejected` |
+| `comment.created`, `recipe.published`, `recipe.rejected` | `notifications`: push al autor |
+| `chef.feedback_given`, `recipe.liked`, `meal.logged`, `cooking.events_recorded` | `learning`: señales de aprendizaje (proyección reconstruible con `events:replay`) |
 
-```text
-# JSON con los últimos N registros
-https://TU_DOMINIO/debug/logs?token=noshy-debug-2026&limit=200
+## Decisiones que vienen del contrato
 
-# Stream SSE crudo (para integrar con otra herramienta)
-https://TU_DOMINIO/debug/logs/stream?token=noshy-debug-2026
+- **Calorías:** la fórmula vive en `core/domain/nutrition.ts`. El front solo reescala con `macroSplit`; el backend recalcula al guardar.
+- **Restricciones y adaptación:** `core/domain/restrictions.ts` decide compatibilidad y sustituciones (crema → bebida de avena por lactosa; pasta → pasta de garbanzo por más proteína). La adaptación se persiste con ID estable y se recrea si cambian las preferencias, conservando las propuestas aplicadas (airfryer).
+- **Cantidades:** `{ value, unit, display }`; el backend escala y escribe «2 dientes», «al gusto», «todo».
+- **Modo cocina:** la sesión trae todos los pasos escalados y adaptados, con alertas de cambio de calor calculadas (`heatChange`). El timer vive en el front; los eventos llegan en lote y se deduplican.
+- **Chat:** `POST /me/chef/threads/{id}/messages` responde por SSE con `Accept: text/event-stream` o JSON sin él. Idempotente por `clientMessageId`.
+- **Idempotency-Key:** middleware que guarda la primera respuesta por usuario + ruta y la repite con `Idempotent-Replayed: true`.
+- **Zona horaria:** `X-Timezone` en cada request; se guarda la última en `users.timezone` para los workers.
+- **Menú y lista:** el onboarding crea el menú por evento; la lista se arma desde el menú menos la despensa.
 
-# Limpiar el buffer
-DELETE https://TU_DOMINIO/debug/logs?token=noshy-debug-2026
-```
+## Proveedores enchufables (qué hay que conectar para producción)
 
-El visor registra prácticamente todo el ciclo de vida:
+| Puerto | Implementación incluida | Para producción |
+| --- | --- | --- |
+| `Storage` | `LocalStorage`: URLs firmadas con HMAC hacia `/api/v1/storage/upload` | S3/GCS con URL prefirmada (misma interfaz) |
+| `ReceiptParser` | `MockReceiptParser` (factura de ejemplo) · `none` | Servicio de OCR o modelo de visión |
+| `ChefEngine` | `LlmChefEngine` (OpenRouter, modelos gratis) si hay `OPENROUTER_API_KEY`: responde el texto libre eligiendo solo entre recetas reales y compatibles; si falla, cae a `RuleBasedChefEngine`, que cubre los flujos del diseño (ideas, otra idea, ¿qué compro?, más proteína, airfryer, congelar) | Ajustar prompt y modelos (`OPENROUTER_MODEL`) |
+| `Moderation` | Reglas básicas de spam | Servicio de moderación de texto e imágenes |
+| `OAuthVerifier` | Verifica idTokens de Google y Apple con sus JWKS | Configura `GOOGLE_CLIENT_IDS` y `APPLE_CLIENT_IDS` |
+| `Notifier` | Registra en el log (respeta Ajustes › Notificaciones) | FCM / APNs |
+| `Mailer` | Registra en el log (código de verificación, exportación lista) | SES / Resend / SendGrid |
+| `NutritionEstimator` | Tabla de platos colombianos + recetas + ingredientes del catálogo | Modelo de lenguaje con la misma interfaz |
 
-- **HTTP**: request iniciada (método, ruta, query, IP, origin, user-agent, si trae `Authorization`), request completada (status, duración, tamaño, body parseado), abortos, rutas inexistentes (404), JSON inválido y errores 500 con stack.
-- **Auth**: registro/login exitosos o fallidos, token ausente/inválido/válido.
-- **CommandBus**: comando recibido, validación fallida, sin usuario, duplicado, completado o con error.
-- **Eventos**: eventos del outbox entregados o fallidos, publicación/consumo de RabbitMQ (comandos y eventos).
-- **Infraestructura**: arranque de la API (qué servicios están habilitados), migraciones de Postgres, conexiones/reintentos de MongoDB, llamadas a OpenRouter (modelo, duración, errores).
+## Endpoints
 
-El buffer conserva los últimos 2.000 registros en memoria del proceso; al reiniciar la API se limpia. Los campos que parezcan contraseñas, tokens, cookies, secretos o API keys se redactan automáticamente (el `Authorization` jamás se imprime en claro).
+85 operaciones. La referencia completa con esquemas está en `/docs`. Resumen:
 
-Para desactivarlo, define `DEBUG_LOGS_ENABLED=false` en el `.env` del servidor y reinicia el servicio. Si el repo o el visor son públicos, cambia `DEBUG_LOGS_TOKEN` por un valor propio y no lo compartas en tickets o capturas.
+- **Cuenta:** `POST /auth/register`, `POST /auth/oauth/{provider}`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/email/verify`, `POST /auth/email/resend`
+- **Ajustes:** `GET|PATCH /me/settings`, `POST /me/data-exports`, `GET /me/data-exports/{id}`, `GET /me/data-exports/{id}/download`, `DELETE /me`
+- **Onboarding:** `GET /onboarding/options`, `POST /nutrition/targets/preview`, `GET|PATCH /me/onboarding`, `POST /me/onboarding/complete`, `GET /me/menus/{id}`, `POST /me/menus/{id}/retry`
+- **Mi semana:** `GET /me/menus/current`, `POST /me/menus/{id}/entries`, `PATCH|DELETE /me/menus/{id}/entries/{entryId}`, `POST /me/menus/{id}/shopping-list`
+- **Tu despensa (onboarding):** `GET /me/pantry/suggestions`, `POST /me/pantry/bulk`
+- **Facturas:** `POST /me/receipts` (multipart), `GET /me/receipts/{id}`, `GET /me/receipts/{id}/items`, `PATCH /me/receipts/{id}/items/{itemId}`
+- **Inicio:** `GET /me/home`, `GET /me/days/{date}`, `POST /me/days/{date}/meals`, `DELETE /me/days/{date}/meals/{id}`, `GET /me/recommendations`, `GET /me/nudges`, `POST /me/nudges/{id}/dismiss`, `POST /nutrition/estimate`
+- **Tu chef:** `POST /me/chef/threads`, `GET|POST /me/chef/threads/{id}/messages`, `POST /me/chef/threads/{id}/read`, `POST /me/chef/messages/{id}/feedback`, `GET /me/chef/insights`, `POST /me/chef/insights/{id}/feedback`
+- **Mi despensa:** `GET /me/pantry/overview`, `GET /me/pantry`, `POST /me/pantry/items`, `PATCH|DELETE /me/pantry/{id}`
+- **Lista de compras:** `GET /me/shopping-lists/current`, `POST /me/shopping-lists/current/items`, `POST /me/shopping-lists/current/recipes`, `PATCH /me/shopping-lists/{id}/items/{itemId}`, `POST …/items/{itemId}/swap`, `POST …/share`, `POST …/checkout`, `GET /shared/lists/{token}` (público)
+- **Mi cocina:** `GET /me/cooked-recipes`
+- **Recetas:** `GET /recipes/{id}`, `POST /recipes/{id}/adaptations`, `PUT|DELETE /me/saved-recipes/{id}`, `PUT|DELETE /me/liked-recipes/{id}`
+- **Modo cocina:** `POST /me/cooking-sessions`, `GET /me/cooking-sessions/active`, `GET /me/cooking-sessions/{id}`, `POST …/events`, `POST …/complete`, `POST …/abandon`
+- **Comunidad:** `GET /community/feed`, `GET /community/creators`, `GET|POST /community/recipes/{id}/comments`, `PUT|DELETE /me/following/{userId}`
+- **Crear receta:** `POST /media/uploads`, `POST /me/recipes`, `PATCH /me/recipes/{id}`, `POST /me/recipes/{id}/publish`, `GET /me/recipes`, `GET /catalog/ingredients/search`
+- **Perfil:** `GET /me/profile`, `PATCH /me/preferences`
 
-## Autenticación
+## Siguiente
 
-Los endpoints protegidos usan:
-
-```http
-Authorization: Bearer <token>
-```
-
-`POST /auth/register` y `POST /auth/login` devuelven un **JWT HS256** firmado con `JWT_SECRET` (emisor `noshy`, audiencia `noshy-api`, `sub` = id del usuario). Se rechazan los tokens adulterados, expirados o firmados con otro secreto. Sin `JWT_SECRET` la API usa un secreto temporal y los tokens dejan de valer al reiniciarla.
-
-No hay revocación ni refresh token: un token vale hasta que expira.
-
-## Contratos principales
-
-| Área             | Operaciones                                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Auth             | `POST /auth/register`, `POST /auth/login`, `GET /auth/me`                                                                                                     |
-| Plan nutricional | `POST /plans`, `GET /plans`, `GET /plans/active`, `PUT /plans/active`                                                                                         |
-| Inventario       | `POST/GET /inventory/items`, `PATCH/DELETE /inventory/items/:id`                                                                                              |
-| Recetas propias  | `POST/GET /recipes`, `PATCH/DELETE /recipes/:id`, publicar y retirar publicación                                                                              |
-| Comunidad        | `GET /community/recipes`, `GET /community/recipes/:id`                                                                                                        |
-| Agente chef      | sesiones, contexto, mensajes y `POST /chef/sessions/:id/respond`                                                                                              |
-| Feedback         | `POST/GET /feedback`, `GET /recommendations`                                                                                                                  |
-| Compras          | `POST /shopping-list` desde recetas guardadas o recetas inline del agente                                                                                     |
-| Alimentos        | `GET /food/products?q=`, `GET /food/products/:id`, `POST /food/macros`, `GET /food/history`                                                                   |
-| Recetas IA (RAG) | `GET /food/library/browse`, `GET /food/library/recipes?ingredients=`, `GET /food/library/recipes/:id`, `POST /food/recipes/generate`, `GET /food/recipes/:id` |
-
-Los errores de rutas desconocidas y JSON inválido usan el formato:
-
-```json
-{
-  "error": {
-    "code": "ROUTE_NOT_FOUND",
-    "message": "Ruta no encontrada."
-  }
-}
-```
-
-## Flujo MVP
-
-```text
-Plan nutricional + preferencias
-	-> sesión del agente chef
-	-> receta adaptada al inventario
-	-> lista de compras
-	-> feedback comportamental
-	-> comunidad de recetas públicas
-```
-
-## Workflow Git
-
-Cada feature se crea desde el `dev` remoto actualizado, se implementa y valida en su propia rama, se publica en el remoto y finalmente se fusiona a `dev`.
-
-## Agente chef (OpenRouter)
-
-`POST /chef/sessions/:id/respond` usa `OpenRouterChefAgent` (`src/infrastructure/ai/`). Por defecto usa modelos **gratuitos** (`nvidia/nemotron-3-super-120b-a12b:free`, con respaldo en `google/gemma-4-31b-it:free` y `openrouter/free`), así que no consume créditos. El agente recibe el plan, las preferencias, el inventario, la receta y el historial de la sesión, y responde en JSON con un mensaje y los eventos de feedback que detecte (que se registran como `feedback.feedback_recorded`).
-
-Los modelos gratuitos tienen límites de uso por minuto y por día, y sus proveedores pueden registrar los prompts: no envíes datos sensibles reales.
-
-## Alimentos y recetas (MongoDB)
-
-El módulo `food` consulta un MongoDB **de solo lectura** (base `food`, usuario con rol `read`), aparte de Postgres y RabbitMQ:
-
-- **`products_slim`** (catálogo de ~7.6k alimentos): `GET /food/products?q=arroz blanco` para el dropdown. Normaliza el texto (minúsculas, sin tildes, sin conectores como "de"), exige todas las palabras y excluye `suspect`. Trae hasta 100 candidatos y los ordena por **relevancia** (`modules/food/food-ranking.ts`), no por popularidad: puntúa que la palabra sea el núcleo del nombre y palabra completa ("sal" ≠ "salchicha") y penaliza sabores ("sabor pollo", "limón pimienta"), procesados, marcas de snacks y mezclas. Cada resultado trae `exactMatch: true` cuando el producto ES el alimento buscado.
-- **Ojo con los datos:** hoy el catálogo no tiene genéricos USDA (`source: "usda"`, `state`, `pairKey` están vacíos) ni varios básicos crudos (cebolla, ajo, zanahoria). Cuando no hay un match confiable, la receta generada omite ese ingrediente de los macros y lo avisa en `warnings`, en vez de sumar los de un snack.
-- **Macros** (`POST /food/macros`): por gramos o por porción (`serving` + `quantity`); sin cantidad usa 100 g y lo avisa. Con `"log": true` registra la comida (evento `food.meal_logged`).
-- **`recipes_raw`** (RecipeNLG, ~2.2M recetas en inglés, sin calorías): `GET /food/library/recipes?ingredients=pollo,arroz`. Los ingredientes se traducen al inglés con OpenRouter (con caché en memoria) y se buscan por `ner`.
-- **Biblioteca paginada** (`GET /food/library/browse`): sin parámetros devuelve una página **aleatoria** de 20 recetas; `sort=recent|oldest` ordena por id del dataset (RecipeNLG no tiene fechas, así que "recent" son las últimas agregadas). Filtros: `source` (`Gathered`/`Recipes1M`) y `maxIngredients`. Paginación por cursor (`nextCursor`, sin `skip`): cualquier página cuesta lo mismo, también en modo aleatorio, que arranca en un id al azar y recorre toda la colección sin repetir. Cada tarjeta trae `tags` e `image` (hoy siempre `null`: el dataset no trae imágenes).
-- **RAG** (`POST /food/recipes/generate`): trae recetas de referencia, el modelo de OpenRouter redacta una receta en español y **el back calcula los macros** cruzando cada ingrediente con `products_slim` (en recetas, sin indicación se asume crudo). Registra `food.recipe_generated` y devuelve `recipeInput`, listo para `POST /recipes`.
-- **Tags de recetas** (`tags` en la biblioteca y en las recetas generadas): `diet` (vegetariana, vegana), `allergens` (gluten, leche, huevo, maní, frutos secos, soya, pescado, mariscos, ajonjolí), `mealTypes` (postre, sopa, ensalada, desayuno, salsa… o el tipo que da el modelo), `proteins` (pollo, res, cerdo, pescado, legumbres…), `nutrition` (alto en proteína, bajo en carbohidratos… solo con macros) y `effort` (pocos ingredientes, rápida). Se deducen con un léxico bilingüe (`modules/food/food-tags.ts`) más los alérgenos y grupos de los productos del catálogo. Son orientativos: `allergens` lista lo detectado y nunca se afirma "sin gluten".
-- **Historial** (`GET /food/history`, `GET /food/recipes/:id`): no tiene tabla propia, se reconstruye reproduciendo los eventos `food.*` del usuario (Event Sourcing).
-
-Todo pasa por el `CommandBus` (`food.*` en `modules/food/events/food.handlers.ts`), así que también se puede disparar por RabbitMQ. El adaptador (`infrastructure/database/mongo/`) solo usa `find` y `aggregate`, con proyección, `limit` y `maxTimeMS`; el texto del usuario se escapa antes de entrar a un regex y los DTO rechazan objetos (`{ "$ne": "" }`). Si Mongo no responde al arrancar, la API sigue arriba, reintenta con backoff y responde 503 mientras tanto. Al conectar avisa en el log si faltan los índices `products_slim.popularity` o `recipes_raw.ner`.
-
-RecipeNLG es solo para uso educativo/investigación no comercial: se usa como referencia interna, no se redistribuye.
-
-El frontend y Redis están fuera del alcance de este submódulo en la etapa actual.
+- Conectar los proveedores reales de producción: OCR de facturas, correo, push y S3/GCS.
+- Cambio de email desde Ajustes (hoy solo se editan nombre, apellido, género y foto).
+- Panel de operación para `noshy.dead-letters` y el outbox en `dead` (hoy se revisan desde el panel de RabbitMQ y con SQL).
+- Migrar el frontend: las rutas del backend anterior (`/food`, `/plans`, `/inventory`…) ya no existen; el mapa está en el contrato v0.3.

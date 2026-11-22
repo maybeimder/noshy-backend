@@ -1,56 +1,24 @@
-import type { Request, Response } from 'express';
-import { runHandler } from '../../../infrastructure/http/command-dispatch';
-import type { loginUser, registerUser } from '../auth.service';
-import { AuthHandlers } from '../events/auth.handlers';
-import { authHeaderSchema } from './auth.dto';
+import type { z } from 'zod';
+import type { Container } from '../../../container.js';
+import type { Req, Rep } from '../../../core/shared/request.js';
+import { ok } from '../../../core/shared/http.js';
+import type { LoginBody, OAuthBody, OAuthParams, RefreshBody, RegisterBody } from './auth.dto.js';
 
 export class AuthController {
-  static register = async (request: Request, response: Response) => {
-    const outcome = await runHandler<Awaited<ReturnType<typeof registerUser>>>(request, response, AuthHandlers.register, { data: request.body });
-    if (!outcome) return;
-    const { result } = outcome;
+  constructor(private readonly c: Container) {}
 
-    if (!result.ok) {
-      response.status(409).json({ code: result.code, message: result.message });
-      return;
-    }
-
-    response.status(201).json(result.data);
+  register = async (req: Req<{ Body: z.infer<typeof RegisterBody> }>, reply: Rep) => {
+    reply.code(201);
+    return ok(await this.c.services.auth.register(req.body, req.tz));
   };
 
-  static login = async (request: Request, response: Response) => {
-    const outcome = await runHandler<Awaited<ReturnType<typeof loginUser>>>(request, response, AuthHandlers.login, { data: request.body });
-    if (!outcome) return;
-    const { result } = outcome;
+  login = async (req: Req<{ Body: z.infer<typeof LoginBody> }>) => ok(await this.c.services.auth.login(req.body, req.tz));
 
-    if (!result.ok) {
-      response.status(401).json({ code: result.code, message: result.message });
-      return;
-    }
-
-    response.status(200).json(result.data);
+  oauth = async (req: Req<{ Params: z.infer<typeof OAuthParams>; Body: z.infer<typeof OAuthBody> }>, reply: Rep) => {
+    const result = await this.c.services.auth.oauthSignIn(req.params.provider, req.body, req.tz);
+    reply.code(result.isNewUser ? 201 : 200);
+    return ok(result);
   };
 
-  static me = async (request: Request, response: Response) => {
-    const authHeader = request.headers.authorization ?? '';
-    const parsed = authHeaderSchema.safeParse({ authorization: authHeader });
-
-    if (!parsed.success) {
-      response.status(401).json({ message: 'Token de autorización requerido.' });
-      return;
-    }
-
-    const token = parsed.data.authorization.replace(/^Bearer\s+/i, '');
-    const outcome = await runHandler<{ id: string; name: string; email: string } | null>(request, response, AuthHandlers.me, {
-      params: { token }
-    });
-    if (!outcome) return;
-
-    if (!outcome.result) {
-      response.status(401).json({ message: 'Token inválido o expirado.' });
-      return;
-    }
-
-    response.status(200).json(outcome.result);
-  };
+  refresh = async (req: Req<{ Body: z.infer<typeof RefreshBody> }>) => ok(await this.c.services.auth.refresh(req.body.refreshToken));
 }

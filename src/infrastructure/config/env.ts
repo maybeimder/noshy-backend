@@ -1,69 +1,80 @@
 import { z } from 'zod';
 
-// Visor de logs remoto habilitado por defecto para poder diagnosticar el servidor sin acceso shell.
-// Cualquier valor "false"/"0"/"no"/"off" en DEBUG_LOGS_ENABLED lo desactiva.
-export const DEFAULT_DEBUG_LOGS_TOKEN = 'noshy-debug-2026';
+const csv = z
+  .string()
+  .default('')
+  .transform((s) => s.split(',').map((x) => x.trim()).filter(Boolean));
 
-const environmentSchema = z.object({
-  PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
-  CORS_ORIGIN: z.string().trim().min(1).default('*'),
-  JSON_BODY_LIMIT: z.string().regex(/^\d+(kb|mb)$/i).default('1mb'),
-  DEBUG_LOGS_ENABLED: z
-    .preprocess((value) => (typeof value === 'string' ? !['false', '0', 'no', 'off'].includes(value.trim().toLowerCase()) : value), z.boolean())
-    .default(true),
-  DEBUG_LOGS_TOKEN: z.string().trim().min(16).default(DEFAULT_DEBUG_LOGS_TOKEN),
-  // Opcional: sin él todo corre en memoria dentro del proceso de la API.
-  RABBITMQ_URL: z.string().trim().regex(/^amqps?:\/\//i, 'RABBITMQ_URL debe empezar con amqp:// o amqps://').optional(),
-  // Opcional: sin él el Event Store y el Outbox viven en memoria.
-  DATABASE_URL: z.string().trim().regex(/^postgres(ql)?:\/\//i, 'DATABASE_URL debe empezar con postgres:// o postgresql://').optional(),
-  // Secreto para firmar los JWT. Sin él se usa uno aleatorio por proceso (los tokens mueren al reiniciar).
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres').optional(),
-  JWT_EXPIRES_IN: z.string().trim().regex(/^\d+[smhd]$/, 'JWT_EXPIRES_IN debe ser como 15m, 12h o 7d').optional(),
-  // Opcional: sin key el agente chef no está disponible (POST /chef/sessions/:id/respond -> 503).
-  OPENROUTER_API_KEY: z.string().trim().min(1).optional(),
-  // Opcional: modelos separados por coma; el primero es el preferido y los demás son respaldo.
-  OPENROUTER_MODEL: z.string().trim().min(1).optional(),
-  // Opcional: catálogo de alimentos y recetas (Mongo de solo lectura). Sin él, /food responde 503.
-  MONGO_URL: z.string().trim().regex(/^mongodb(\+srv)?:\/\//i, 'MONGO_URL debe empezar con mongodb:// o mongodb+srv://').optional()
+const bool = z
+  .union([z.boolean(), z.string()])
+  .transform((v) => v === true || v === 'true' || v === '1');
+
+const EnvSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().int().default(3000),
+  LOG_LEVEL: z.string().default('info'),
+  PUBLIC_BASE_URL: z.string().url().default('http://localhost:3000'),
+  /** Base de los enlaces que se comparten (recetas, listas). */
+  SHARE_BASE_URL: z.string().url().default('https://noshy.app'),
+
+  DATABASE_URL: z.string().min(1),
+  MONGO_URL: z.string().min(1),
+  /** Opcional: por defecto, la base que viene en MONGO_URL (`…/food` → `food`). */
+  MONGO_DB: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+  GOOGLE_CLIENT_IDS: csv,
+  APPLE_CLIENT_IDS: csv,
+
+  STORAGE_DRIVER: z.enum(['local']).default('local'),
+  STORAGE_DIR: z.string().default('./.storage'),
+  UPLOAD_SIGNING_SECRET: z.string().min(8).default('dev-upload-secret'),
+
+  RECEIPT_PARSER: z.enum(['mock', 'none']).default('mock'),
+  /** rules: motor determinista · openrouter: LLM con respaldo en reglas (necesita OPENROUTER_API_KEY). */
+  CHEF_ENGINE: z.enum(['rules', 'openrouter']).optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: csv,
+
+  /** Aplica migraciones y carga el catálogo (si está vacío) al arrancar la API. */
+  MIGRATE_ON_START: bool.default(true),
+  SEED_ON_START: bool.default(true),
+
+  /**
+   * Eventos. Con RABBITMQ_URL el transporte es RabbitMQ (el de producción); sin ella, en proceso.
+   * EVENT_TRANSPORT lo fuerza (`in-process` sirve para tests o una sola máquina sin broker).
+   */
+  EVENT_TRANSPORT: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['rabbitmq', 'in-process']).optional()),
+  RABBITMQ_URL: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().trim().regex(/^amqps?:\/\//i, 'RABBITMQ_URL debe empezar con amqp:// o amqps://').optional(),
+  ),
+  /** Prefijo de exchanges y colas (`noshy.events`, `noshy.events.observers`, `noshy.dlx`…). */
+  RABBITMQ_PREFIX: z.string().regex(/^[a-z0-9_.-]+$/i).default('noshy'),
+  RABBITMQ_PREFETCH: z.coerce.number().int().positive().default(20),
+  /** Esperas entre reintentos de un observer que falla; después del último va a dead letters. */
+  RABBITMQ_RETRY_DELAYS_MS: z
+    .string()
+    .default('5000,30000,120000,600000')
+    .transform((s) => s.split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n) && n > 0)),
+
+  /** true: este proceso también consume eventos y corre el scheduler (modo de una sola máquina). */
+  RUN_WORKERS: bool.default(true),
+  RATE_LIMIT_ENABLED: bool.default(true),
+  OUTBOX_POLL_MS: z.coerce.number().int().positive().default(500),
+  OUTBOX_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
 });
 
-export type EnvironmentConfig = {
-  port: number;
-  corsOrigin: string;
-  jsonBodyLimit: string;
-  debugLogsEnabled: boolean;
-  debugLogsToken: string;
-  rabbitmqUrl?: string;
-  databaseUrl?: string;
-  jwtSecret?: string;
-  jwtExpiresIn?: string;
-  openRouterApiKey?: string;
-  openRouterModels?: string[];
-  mongoUrl?: string;
-};
+export type Env = z.infer<typeof EnvSchema>;
 
-export function getEnv(environment: NodeJS.ProcessEnv = process.env): EnvironmentConfig {
-  // `CLAVE=` vacío (típico al copiar .env.example) cuenta como no definido, no como valor inválido.
-  const defined = Object.fromEntries(Object.entries(environment).filter(([, value]) => value?.trim()));
-  const parsed = environmentSchema.safeParse(defined);
+export function loadEnv(source: Record<string, string | undefined> = process.env): Env {
+  const parsed = EnvSchema.safeParse(source);
   if (!parsed.success) {
-    throw new Error(`Configuración de entorno inválida: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`);
+    const issues = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
+    throw new Error(`Variables de entorno inválidas:\n${issues}`);
   }
-
-  return {
-    port: parsed.data.PORT,
-    corsOrigin: parsed.data.CORS_ORIGIN,
-    jsonBodyLimit: parsed.data.JSON_BODY_LIMIT,
-    debugLogsEnabled: parsed.data.DEBUG_LOGS_ENABLED,
-    debugLogsToken: parsed.data.DEBUG_LOGS_TOKEN,
-    ...(parsed.data.RABBITMQ_URL ? { rabbitmqUrl: parsed.data.RABBITMQ_URL } : {}),
-    ...(parsed.data.DATABASE_URL ? { databaseUrl: parsed.data.DATABASE_URL } : {}),
-    ...(parsed.data.JWT_SECRET ? { jwtSecret: parsed.data.JWT_SECRET } : {}),
-    ...(parsed.data.JWT_EXPIRES_IN ? { jwtExpiresIn: parsed.data.JWT_EXPIRES_IN } : {}),
-    ...(parsed.data.OPENROUTER_API_KEY ? { openRouterApiKey: parsed.data.OPENROUTER_API_KEY } : {}),
-    ...(parsed.data.OPENROUTER_MODEL
-      ? { openRouterModels: parsed.data.OPENROUTER_MODEL.split(',').map((model) => model.trim()).filter(Boolean) }
-      : {}),
-    ...(parsed.data.MONGO_URL ? { mongoUrl: parsed.data.MONGO_URL } : {})
-  };
+  return parsed.data;
 }

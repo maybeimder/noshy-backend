@@ -1,6 +1,8 @@
 # Server / homelab:  docker compose up -d --build   (o: sudo web-deploy <dominio>, puerto 3000)
 # Desarrollo local:  pnpm infra:up                  -> solo Postgres + RabbitMQ (la API con pnpm dev)
 #
+# Mongo NO va en el compose: se usa el del homelab (MONGO_URL en .env, ej. mongodb://…@192.168.1.10:27017/food?authSource=food).
+#
 # Todo escucha en 127.0.0.1 del host: lo publica Nginx (web-deploy). Para exponer la API directo
 # a la red local sin Nginx, define API_BIND=0.0.0.0 en .env.
 # La API y el worker corren en modo dev (tsx watch) con ./src montado: `git pull` y se recargan solos.
@@ -18,17 +20,20 @@ services:
       - "${API_BIND:-127.0.0.1}:${API_PORT:-3000}:3000"
     volumes:
       - ./src:/app/src:ro
-    extra_hosts:
-      # Para alcanzar servicios del propio server (ej. MongoDB del catálogo) desde el contenedor.
-      - "host.docker.internal:host-gateway"
+      - ./drizzle:/app/drizzle:ro
+      - noshy-storage:/app/.storage
     env_file:
       - path: .env
         required: false
     environment:
       # Dentro de la red de Docker los servicios se llaman por su nombre (postgres, rabbitmq).
+      # MONGO_URL sale de .env (Mongo del homelab).
       PORT: "3000"
       DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
+      STORAGE_DIR: /app/.storage
+      # La API escribe en el outbox y publica en RabbitMQ; el worker consume y corre los observers.
+      RUN_WORKERS: "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,15 +54,17 @@ services:
     command: ["node_modules/.bin/tsx", "watch", "src/entrypoints/worker.ts"]
     volumes:
       - ./src:/app/src:ro
+      - noshy-storage:/app/.storage
     env_file:
       - path: .env
         required: false
     environment:
       DATABASE_URL: postgres://noshy:${POSTGRES_PASSWORD:-noshy}@postgres:5432/noshy
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-noshy}:${RABBITMQ_PASSWORD:-noshy}@rabbitmq:5672
+      STORAGE_DIR: /app/.storage
     depends_on:
       api:
-        condition: service_healthy # la API crea la topología de RabbitMQ y aplica las migraciones
+        condition: service_healthy # la API aplica las migraciones, carga el catálogo y declara la topología
 
   postgres:
     image: postgres:17-alpine
@@ -88,6 +95,8 @@ services:
       # No se usa "guest": RabbitMQ solo lo deja conectar desde localhost y la API corre en otro contenedor.
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-noshy}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-noshy}
+    volumes:
+      - noshy-rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 5s
@@ -96,3 +105,5 @@ services:
 
 volumes:
   noshy-postgres-data:
+  noshy-storage:
+  noshy-rabbitmq-data:

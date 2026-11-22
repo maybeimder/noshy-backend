@@ -1,74 +1,38 @@
-import type { ErrorRequestHandler, Request, Response, NextFunction } from 'express';
-import { applicationLogger } from '../../observability/logger';
+import type { FastifyInstance, FastifyError } from 'fastify';
+import { hasZodFastifySchemaValidationErrors } from 'fastify-type-provider-zod';
+import { AppError } from '../../../core/shared/errors.js';
 
-type HttpError = Error & {
-  status?: number;
-  statusCode?: number;
-  type?: string;
-};
-
-type RequestWithId = Request & { requestId?: string };
-
-export function notFoundMiddleware(request: Request, response: Response, next: NextFunction) {
-  if (response.headersSent) {
-    next();
-    return;
-  }
-
-  applicationLogger.warn('http.request.not_found', `Ruta no encontrada: ${request.method} ${request.originalUrl}`, {
-    requestId: (request as RequestWithId).requestId,
-    method: request.method,
-    path: request.path,
-    query: request.query
-  });
-
-  response.status(404).json({
-    error: {
-      code: 'ROUTE_NOT_FOUND',
-      message: 'Ruta no encontrada.'
+/**
+ * Convierte cualquier error al formato del contrato: `{ error: { code, message, details? } }`.
+ * Los errores de validación de zod salen como 422 con `details` por campo (`goals.ids`).
+ */
+export function registerErrorHandler(app: FastifyInstance) {
+  app.setErrorHandler((err: FastifyError | AppError, request, reply) => {
+    if (err instanceof AppError) {
+      return reply.status(err.status).send({ error: { code: err.code, message: err.message, ...(err.details !== undefined ? { details: err.details } : {}) } });
     }
+    if (hasZodFastifySchemaValidationErrors(err)) {
+      const details = err.validation.map((v) => ({
+        field: v.instancePath.replace(/^\//, '').replace(/\//g, '.') || String((v.params as { issue?: { path?: unknown[] } })?.issue?.path?.join('.') ?? ''),
+        code: String((v.params as { issue?: { code?: string } })?.issue?.code ?? v.keyword ?? 'invalid').toUpperCase(),
+        message: v.message ?? 'Valor inválido.',
+      }));
+      return reply.status(422).send({ error: { code: 'VALIDATION_ERROR', message: 'Revisa los campos marcados.', details } });
+    }
+    const status = err.statusCode ?? 500;
+    if (status === 429) return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Demasiadas solicitudes. Intenta en un momento.' } });
+    if (err.code === 'FST_REQ_FILE_TOO_LARGE' || status === 413)
+      return reply.status(413).send({ error: { code: 'FILE_TOO_LARGE', message: 'El archivo es demasiado grande.' } });
+    if (err.code === 'FST_ERR_CTP_INVALID_MEDIA_TYPE' || status === 415)
+      return reply.status(415).send({ error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'Ese tipo de contenido no es compatible.' } });
+    if (status >= 400 && status < 500) {
+      return reply.status(status).send({ error: { code: 'BAD_REQUEST', message: err.message } });
+    }
+    request.log.error({ err }, 'error no controlado');
+    return reply.status(500).send({ error: { code: 'INTERNAL', message: 'Algo salió mal de nuestro lado. Intenta de nuevo.' } });
   });
+
+  app.setNotFoundHandler((request, reply) =>
+    reply.status(404).send({ error: { code: 'NOT_FOUND', message: `No existe ${request.method} ${request.url.split('?')[0]}.` } }),
+  );
 }
-
-export const errorMiddleware: ErrorRequestHandler = (error: HttpError, request, response, next) => {
-  if (response.headersSent) {
-    next(error);
-    return;
-  }
-
-  const requestId = (request as RequestWithId).requestId;
-
-  if (error.type === 'entity.parse.failed') {
-    applicationLogger.warn('http.request.invalid_json', `JSON inválido en ${request.method} ${request.originalUrl}`, {
-      requestId,
-      method: request.method,
-      path: request.path
-    });
-    response.status(400).json({
-      error: {
-        code: 'INVALID_JSON',
-        message: 'El cuerpo de la solicitud no contiene JSON válido.'
-      }
-    });
-    return;
-  }
-
-  const status = error.statusCode ?? error.status ?? 500;
-  const isClientError = status >= 400 && status < 500;
-
-  applicationLogger.log(isClientError ? 'warn' : 'error', 'http.request.failed', `${request.method} ${request.originalUrl} -> ${status}: ${error.message}`, {
-    requestId,
-    method: request.method,
-    path: request.path,
-    status,
-    error: error.message,
-    ...(isClientError ? {} : { stack: error.stack })
-  });
-
-  response.status(status).json({
-    error: {
-      code: isClientError ? 'REQUEST_ERROR' : 'INTERNAL_SERVER_ERROR',
-      message: isClientError ? error.message || 'La solicitud no es válida.' : 'Error interno del servidor.'
-    }
-  });
-};
