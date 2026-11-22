@@ -6,37 +6,26 @@ node_modules/
 .env.*
 !.env.example
 
+# Archivos locales (facturas, fotos, exportaciones)
+.storage/
+.storage-test/
+
 # Logs
 logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
 
 # Build output
 dist/
 build/
-
-# Coverage
 coverage/
 
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# OS
+# OS / editor
 .DS_Store
 Thumbs.db
-
-# Editor
 .vscode/
 .idea/
 *.swp
-
-# TypeScript
 *.tsbuildinfo
 
 # Generado por web-deploy en el server (puertos locales)
