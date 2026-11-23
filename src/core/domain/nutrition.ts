@@ -3,7 +3,16 @@ import { toGrams, type Unit } from './quantity.js';
 
 export type Macros = { kcal: number; proteinG: number; carbsG: number; fatG: number };
 export type MacrosWithFiber = Macros & { fiberG: number };
-export type Biometrics = { weightKg: number; heightCm: number; birthYear: number; sex: 'female' | 'male' | null };
+export type Biometrics = {
+  weightKg: number;
+  heightCm: number;
+  birthYear: number;
+  sex: 'female' | 'male' | null;
+  /** Medidas opcionales. Con sexo y las que pide la fórmula, estiman la grasa corporal. */
+  waistCm?: number | null;
+  neckCm?: number | null;
+  hipCm?: number | null;
+};
 
 const ACTIVITY_FACTOR: Record<ActivityLevel, number> = { sedentary: 1.35, active: 1.55, veryActive: 1.75 };
 
@@ -29,7 +38,25 @@ export const KCAL_RANGE = { min: 1400, max: 4000 };
 const roundTo = (n: number, step: number) => Math.round(n / step) * step;
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
+/**
+ * Grasa corporal (%) con el método de la Marina de EE. UU. Necesita sexo, cintura y cuello (y cadera en mujeres).
+ * null si faltan medidas o el resultado no es creíble: en ese caso se usa la fórmula sin medidas.
+ */
+export function bodyFatFrom(b: Biometrics): number | null {
+  if (!b.sex || !b.waistCm || !b.neckCm || (b.sex === 'female' && !b.hipCm)) return null;
+  const girth = b.sex === 'female' ? b.waistCm + b.hipCm! - b.neckCm : b.waistCm - b.neckCm;
+  if (girth <= 0) return null;
+  const h = Math.log10(b.heightCm);
+  const g = Math.log10(girth);
+  const density = b.sex === 'female' ? 1.29579 - 0.35004 * g + 0.221 * h : 1.0324 - 0.19077 * g + 0.15456 * h;
+  const pct = 495 / density - 450;
+  return pct >= 3 && pct <= 60 ? Math.round(pct * 10) / 10 : null;
+}
+
+/** Gasto en reposo: Katch-McArdle si se conoce la grasa corporal; si no, Mifflin-St Jeor. */
 export function bmrFrom(b: Biometrics, now = new Date()): number {
+  const fat = bodyFatFrom(b);
+  if (fat !== null) return 370 + 21.6 * b.weightKg * (1 - fat / 100);
   const age = now.getUTCFullYear() - b.birthYear;
   const base = 10 * b.weightKg + 6.25 * b.heightCm - 5 * age; // Mifflin-St Jeor
   if (b.sex === 'male') return base + 5;
@@ -44,6 +71,8 @@ export type NutritionPreview = {
   macroSplit: { proteinPct: number; carbsPct: number; fatPct: number };
   fiberGPer1000Kcal: number;
   basis: 'populationDefault' | 'biometrics';
+  /** Grasa corporal estimada con las medidas; null si no se usaron. */
+  bodyFatPct: number | null;
 };
 
 export const FIBER_PER_1000_KCAL = 14;
@@ -70,6 +99,7 @@ export function computeTargets(input: { goalIds: GoalId[]; activityLevel: Activi
     macroSplit,
     fiberGPer1000Kcal: FIBER_PER_1000_KCAL,
     basis: input.biometrics ? 'biometrics' : 'populationDefault',
+    bodyFatPct: input.biometrics ? bodyFatFrom(input.biometrics) : null,
   };
 }
 

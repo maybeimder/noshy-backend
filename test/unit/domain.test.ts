@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeTargets, macrosForKcal, recipeNutrition, isValidKcalTarget } from '../../src/core/domain/nutrition.js';
+import { bmrFrom, bodyFatFrom, computeTargets, macrosForKcal, recipeNutrition, isValidKcalTarget } from '../../src/core/domain/nutrition.js';
 import { evaluateRecipe, conflictsOf } from '../../src/core/domain/restrictions.js';
 import { formatQuantity, quantity, toGrams, heatLabel } from '../../src/core/domain/quantity.js';
 import { streakWeeks } from '../../src/core/domain/streak.js';
@@ -22,6 +22,30 @@ describe('nutrición', () => {
     const lose = computeTargets({ goalIds: ['loseWeight'], activityLevel: 'active', biometrics: { weightKg: 62, heightCm: 165, birthYear: 1995, sex: 'female' } });
     expect(base.basis).toBe('biometrics');
     expect(lose.kcal).toBeLessThan(base.kcal);
+  });
+
+  it('sin medidas usa Mifflin-St Jeor', () => {
+    const now = new Date('2026-11-23');
+    // 10·62 + 6,25·165 − 5·31 − 161
+    expect(bmrFrom({ weightKg: 62, heightCm: 165, birthYear: 1995, sex: 'female' }, now)).toBeCloseTo(1335.25);
+    expect(bmrFrom({ weightKg: 80, heightCm: 180, birthYear: 1996, sex: 'male' }, now)).toBeCloseTo(1780);
+  });
+
+  it('con medidas estima la grasa corporal y usa Katch-McArdle', () => {
+    const man = { weightKg: 80, heightCm: 180, birthYear: 1996, sex: 'male' as const, waistCm: 85, neckCm: 38 };
+    expect(bodyFatFrom(man)).toBeCloseTo(16.1, 0);
+    expect(bmrFrom(man)).toBeCloseTo(370 + 21.6 * 80 * (1 - bodyFatFrom(man)! / 100));
+    const woman = { weightKg: 62, heightCm: 165, birthYear: 1995, sex: 'female' as const, waistCm: 72, neckCm: 32, hipCm: 97 };
+    expect(bodyFatFrom(woman)).toBeGreaterThan(22);
+    expect(bodyFatFrom(woman)).toBeLessThan(30);
+    expect(computeTargets({ goalIds: [], activityLevel: 'active', biometrics: woman }).bodyFatPct).toBe(bodyFatFrom(woman));
+  });
+
+  it('ignora medidas incompletas, sin sexo o imposibles', () => {
+    const base = { weightKg: 62, heightCm: 165, birthYear: 1995 };
+    expect(bodyFatFrom({ ...base, sex: 'female', waistCm: 72, neckCm: 32 })).toBeNull();
+    expect(bodyFatFrom({ ...base, sex: null, waistCm: 72, neckCm: 32, hipCm: 97 })).toBeNull();
+    expect(bodyFatFrom({ ...base, sex: 'male', waistCm: 41, neckCm: 60 })).toBeNull();
   });
 
   it('reescala macros igual que el front', () => {

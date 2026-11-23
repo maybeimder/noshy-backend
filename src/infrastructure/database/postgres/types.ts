@@ -1,5 +1,5 @@
 import type { Unit } from '../../../core/domain/quantity.js';
-import type { MacrosWithFiber, Macros } from '../../../core/domain/nutrition.js';
+import type { Biometrics, MacrosWithFiber, Macros } from '../../../core/domain/nutrition.js';
 
 /** Paso de receta tal como se guarda (cantidades base, sin escalar). */
 export type StepIngredientTemplate = {
@@ -43,6 +43,8 @@ export type PreferencesRestrictions = {
 };
 export type PreferencesKitchen = { mealsPerDay: number; maxCookingMinutes: number | null; skillLevel: string; equipmentIds: string[] };
 export type PreferencesShopping = { storeIds: string[]; priceQualityBalance: number; weeklyBudget: { amount: number; currency: 'COP' } };
+/** Dato de salud (Ley 1581): se guarda solo con la versión del consentimiento aceptado. */
+export type StoredBiometrics = Biometrics & { consentVersion: string; consentedAt: string };
 export type NutritionTargets = MacrosWithFiber & { source: 'suggested' | 'adjusted' | 'recalculated' };
 export type { Macros, MacrosWithFiber };
 

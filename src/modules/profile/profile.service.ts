@@ -42,6 +42,7 @@ export class ProfileService {
       preferences: this.preferences.rows(prefs, user.grammaticalGender),
       summary: this.preferences.summary(prefs),
       nutritionTargets: prefs.nutritionTargets,
+      ...this.preferences.calculationInputs(prefs),
       onboardingStatus: user.onboardingStatus,
       updatedAt: prefs.updatedAt.toISOString(),
     };

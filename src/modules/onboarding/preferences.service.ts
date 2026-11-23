@@ -19,7 +19,7 @@ import {
   type DietStyle,
   type GoalId,
 } from '../../core/domain/catalog.js';
-import { computeTargets, isValidKcalTarget, macrosForKcal } from '../../core/domain/nutrition.js';
+import { computeTargets, isValidKcalTarget, macrosForKcal, type Biometrics } from '../../core/domain/nutrition.js';
 import type { UserRestrictions } from '../../core/domain/restrictions.js';
 import { conflictsOf } from '../../core/domain/restrictions.js';
 import type {
@@ -29,12 +29,17 @@ import type {
   PreferencesKitchen,
   PreferencesRestrictions,
   PreferencesShopping,
+  StoredBiometrics,
 } from '../../infrastructure/database/postgres/types.js';
 import { Errors, field, type FieldError } from '../../core/shared/errors.js';
+
+export type BiometricsInput = Biometrics & { consentVersion: string };
 
 export type PreferencesInput = {
   goals: PreferencesGoals | null;
   activityLevel: string | null;
+  /** undefined: no llegó (no cambia); null: sin biometría o borrarla. */
+  biometrics?: BiometricsInput | null;
   nutrition: { kcalTarget: number; adjustedByUser: boolean } | null;
   restrictions: PreferencesRestrictions | null;
   tastes: { favoriteDishIds: string[] } | null;
@@ -138,7 +143,7 @@ export class PreferencesService {
   resolve(input: PreferencesInput) {
     const goals: PreferencesGoals = input.goals ?? { ids: ['eatHealthier'], customNote: null };
     const activityLevel = (input.activityLevel ?? 'active') as ActivityLevel;
-    const preview = computeTargets({ goalIds: goals.ids as GoalId[], activityLevel });
+    const preview = computeTargets({ goalIds: goals.ids as GoalId[], activityLevel, biometrics: input.biometrics });
     const kcal = input.nutrition?.kcalTarget ?? preview.kcal;
     const nutritionTargets: NutritionTargets = {
       kcal,
@@ -157,6 +162,7 @@ export class PreferencesService {
     return {
       goals,
       activityLevel,
+      biometrics: input.biometrics ? this.stampConsent(input.biometrics) : null,
       kcalTarget: kcal,
       kcalAdjustedByUser: input.nutrition?.adjustedByUser ?? false,
       restrictions,
@@ -167,6 +173,11 @@ export class PreferencesService {
       loves,
       likedCuisines,
     };
+  }
+
+  /** Conserva la fecha del consentimiento original mientras la versión no cambie. */
+  private stampConsent(b: BiometricsInput & { consentedAt?: string }): StoredBiometrics {
+    return { ...b, consentedAt: b.consentedAt ?? new Date().toISOString() };
   }
 
   private resolveRestrictions(r: PreferencesRestrictions): PreferencesRestrictions {
@@ -198,6 +209,12 @@ export class PreferencesService {
     return { loves, likedCuisines };
   }
 
+  private mergeBiometrics(next: BiometricsInput | null | undefined, current: StoredBiometrics | null): (BiometricsInput & { consentedAt?: string }) | null {
+    if (next === undefined) return current;
+    if (next && current && next.consentVersion === current.consentVersion) return { ...next, consentedAt: current.consentedAt };
+    return next;
+  }
+
   async patch(userId: string, input: Partial<PreferencesInput>) {
     this.validate(input);
     const current = await this.getOrThrow(userId);
@@ -207,13 +224,14 @@ export class PreferencesService {
     const merged: PreferencesInput = {
       goals: input.goals ?? current.goals,
       activityLevel: input.activityLevel ?? current.activityLevel,
+      biometrics: this.mergeBiometrics(input.biometrics, current.biometrics),
       nutrition: input.nutrition ?? null,
       restrictions: input.restrictions ?? current.restrictions,
       tastes: input.tastes ?? { favoriteDishIds: current.favoriteDishIds },
       kitchen: input.kitchen ?? current.kitchen,
       shopping: input.shopping ?? current.shopping,
     };
-    const recalc = !input.nutrition && (input.goals !== undefined || input.activityLevel !== undefined);
+    const recalc = !input.nutrition && (input.goals !== undefined || input.activityLevel !== undefined || input.biometrics !== undefined);
     if (!input.nutrition && !recalc) merged.nutrition = { kcalTarget: current.kcalTarget, adjustedByUser: current.kcalAdjustedByUser };
     const resolved = this.resolve(merged);
     if (recalc) resolved.nutritionTargets.source = 'recalculated';
@@ -225,6 +243,11 @@ export class PreferencesService {
     });
     this.outbox.kick();
     return this.getOrThrow(userId);
+  }
+
+  /** Lo que el front necesita para volver a calcular el punto de partida. */
+  calculationInputs(p: PreferencesRow) {
+    return { activityLevel: p.activityLevel, biometrics: p.biometrics, kcalAdjustedByUser: p.kcalAdjustedByUser };
   }
 
   /** `summary` de la respuesta de onboarding y de Perfil. */

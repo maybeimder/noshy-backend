@@ -5,6 +5,7 @@ import type {
   PreferencesKitchen,
   PreferencesRestrictions,
   PreferencesShopping,
+  StoredBiometrics,
   Labeled,
 } from '../../infrastructure/database/postgres/types.js';
 import { users } from '../auth/auth.model.js';
@@ -14,6 +15,7 @@ export const userPreferences = pgTable('user_preferences', {
   userId: text().primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   goals: jsonb().$type<PreferencesGoals>().notNull(),
   activityLevel: text().notNull(),
+  biometrics: jsonb().$type<StoredBiometrics>(),
   kcalTarget: integer().notNull(),
   kcalAdjustedByUser: boolean().notNull().default(false),
   restrictions: jsonb().$type<PreferencesRestrictions>().notNull(),

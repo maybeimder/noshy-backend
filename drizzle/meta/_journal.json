@@ -22,6 +22,13 @@
       "when": 1795388036915,
       "tag": "0002_event_store_rabbitmq",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795453238716,
+      "tag": "0003_biometrics",
+      "breakpoints": true
     }
   ]
 }

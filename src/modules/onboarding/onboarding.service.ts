@@ -80,6 +80,7 @@ export class OnboardingService {
       onboardingStatus: 'completed' as const,
       summary: this.preferences.summary(prefs),
       nutritionTargets: prefs.nutritionTargets,
+      ...this.preferences.calculationInputs(prefs),
       updatedAt: prefs.updatedAt.toISOString(),
       firstMenu: { menuId, status: 'generating' as const, estimatedReadyInSeconds: 8 },
     };

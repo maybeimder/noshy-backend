@@ -11,7 +11,12 @@ export const Biometrics = z.object({
   heightCm: z.number().min(100).max(250),
   birthYear: z.number().int().min(1900).max(new Date().getFullYear() - 13),
   sex: z.enum(['female', 'male']).nullable(),
+  waistCm: z.number().min(40).max(250).nullish(),
+  neckCm: z.number().min(20).max(80).nullish(),
+  hipCm: z.number().min(40).max(250).nullish(),
 });
+/** Para guardarla hace falta el consentimiento; el preview no guarda nada y no lo pide. */
+export const BiometricsSection = Biometrics.extend({ consentVersion: z.string().min(1).max(20) });
 
 export const NutritionPreviewBody = z.object({ goalIds: z.array(GoalId).max(6), activityLevel: ActivityLevel, biometrics: Biometrics.nullish() });
 
@@ -39,6 +44,7 @@ export const NutritionSection = z.object({ kcalTarget: z.number().int(), adjuste
 export const CompleteBody = z.object({
   goals: GoalsSection.nullable(),
   activityLevel: ActivityLevel.nullable(),
+  biometrics: BiometricsSection.nullish(),
   nutrition: NutritionSection.nullable(),
   restrictions: RestrictionsSection.nullable(),
   tastes: TastesSection.nullable(),
@@ -57,6 +63,8 @@ export const PreferencesPatchBody = z
   .object({
     goals: GoalsSection,
     activityLevel: ActivityLevel,
+    /** null borra lo guardado. */
+    biometrics: BiometricsSection.nullable(),
     nutrition: NutritionSection,
     restrictions: RestrictionsSection,
     tastes: TastesSection,
