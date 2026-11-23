@@ -36,6 +36,8 @@ export class ChefController {
     const write = (e: StreamEvent) => {
       if (!started) {
         reply.hijack();
+        // hijack() se salta las cabeceras de Fastify: sin copiarlas, el navegador bloquea el stream por CORS.
+        for (const [name, value] of Object.entries(reply.getHeaders())) if (value !== undefined) reply.raw.setHeader(name, value);
         reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
         started = true;
       }

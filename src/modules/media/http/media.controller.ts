@@ -22,6 +22,6 @@ export class MediaController {
 
   storageGet = async (req: Req<{ Params: { '*': string } }>, reply: Rep) => {
     const { file, contentType } = await this.c.services.media.publicFile(req.params['*']);
-    return reply.header('Content-Type', contentType).header('Cache-Control', 'public, max-age=86400').send(file);
+    return reply.header('Content-Type', contentType).header('Cross-Origin-Resource-Policy', 'cross-origin').header('Cache-Control', 'public, max-age=86400').send(file);
   };
 }

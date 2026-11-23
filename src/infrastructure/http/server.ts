@@ -38,7 +38,8 @@ export async function buildApp({ env, logger, providers }: BuildOptions) {
   app.addHook('onClose', async () => container.close());
 
   await app.register(helmet, { contentSecurityPolicy: false });
-  await app.register(cors, { origin: true, credentials: true, exposedHeaders: ['ETag', 'Idempotent-Replayed'] });
+  // `methods` explícito: por defecto @fastify/cors solo permite GET, HEAD y POST.
+  await app.register(cors, { origin: true, credentials: true, methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'], exposedHeaders: ['ETag', 'Idempotent-Replayed'] });
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
   if (env.RATE_LIMIT_ENABLED) {
     await app.register(rateLimit, { global: true, max: 300, timeWindow: '1 minute', keyGenerator: (req) => req.headers.authorization ?? req.ip });

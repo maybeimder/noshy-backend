@@ -217,6 +217,12 @@ export class RecipesService {
       servings: { value: servingsValue, min: 1, max: 8 },
       difficulty: recipe.difficulty ? { id: recipe.difficulty, label: labelOf(DIFFICULTIES, recipe.difficulty) } : null,
       stepsCount: recipe.steps.length || recipe.userSteps.length,
+      steps: this.cookingSteps(recipe, adaptation, factor).map((st) => ({
+        title: st.title,
+        text: st.subSteps.map((ss) => ss.text).join(' '),
+        timerSeconds: st.subSteps.reduce((a, ss) => a + (ss.timerSeconds ?? 0), 0) || null,
+        heatLevel: st.heat.level,
+      })),
       adaptation: adaptation
         ? { id: adaptation.id, reasons: adaptation.reasons, substitutions: adaptation.substitutions, stepNotes: adaptation.stepNotes }
         : null,
@@ -224,6 +230,7 @@ export class RecipesService {
         ingredientId: i.ingredientId,
         label: i.label,
         icon: i.icon,
+        prep: i.prep,
         quantity: this.scaleIngredient(i, factor).quantity,
         inPantry: ctx.pantry.has(i.ingredientId),
         inShoppingList: listIds.has(i.ingredientId),
