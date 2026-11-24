@@ -1,10 +1,14 @@
 import type { CookingRepository } from './cooking.repository.js';
 import type { RecipesRepository } from '../recipes/recipes.repository.js';
+import type { Storage } from '../../infrastructure/storage/storage.js';
 import type { CatalogService } from '../catalog/catalog.service.js';
 import { encodeCursor, decodeCursor } from '../../core/shared/cursor.js';
 import { Errors, field } from '../../core/shared/errors.js';
 
 const MEAT_FLAGS = ['meat', 'fish', 'shellfish'];
+
+/** «Foto de tu plato». En las pantallas personales reemplaza a la de la receta; la receta de los demás no cambia. */
+export const cookedPhotoUrl = (storage: Storage, key: string | null) => (key ? storage.publicUrl(key) : null);
 
 /** «Mi cocina»: lo que el usuario ha cocinado, con conteo y filtros (Proteína, Veggie, < 20 min). */
 export class KitchenService {
@@ -12,6 +16,7 @@ export class KitchenService {
     private readonly cooking: CookingRepository,
     private readonly recipesRepo: RecipesRepository,
     private readonly catalog: CatalogService,
+    private readonly storage: Storage,
   ) {}
 
   async cooked(userId: string, q: { filter?: string; sort?: 'recent' | 'mostCooked'; cursor?: string; limit?: number }) {
@@ -48,7 +53,8 @@ export class KitchenService {
     const page = filtered.slice(offset, offset + limit);
     return {
       data: page.map((r) => ({
-        recipe: { id: r.recipeId, title: r.title, imageUrl: r.imageUrl },
+        recipe: { id: r.recipeId, title: r.title, imageUrl: cookedPhotoUrl(this.storage, r.photoKey) ?? r.imageUrl },
+        photoUrl: cookedPhotoUrl(this.storage, r.photoKey),
         timesCooked: r.timesCooked,
         lastCookedAt: new Date(r.lastCookedAt).toISOString(),
       })),

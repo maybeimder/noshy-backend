@@ -122,6 +122,34 @@ describe('biblioteca de recetas', () => {
     expect(library(null).growForExplore(() => false)).toBeNull();
   });
 
+  it('la foto del plato se ve en Cocinadas y en Inicio, la más reciente y solo para su dueño', async () => {
+    const api = users.omni!;
+    const photo = async () => {
+      const up = (await api.post('/media/uploads', { purpose: 'cookedPhoto', contentType: 'image/jpeg', sizeBytes: 100 })).body.data;
+      const url = new URL(up.uploadUrl);
+      const send = () => app.inject({ method: 'PUT', url: `${url.pathname}${url.search}`, headers: { 'content-type': 'image/jpeg' }, payload: Buffer.alloc(100, 1) });
+      return { id: up.mediaId as string, send };
+    };
+    const cook = async (photoMediaId: string | null, at: string) => {
+      const c = await api.post('/me/cooking-sessions', { recipeId: 'rcp_lib_1', servings: 2 });
+      return api.post(`/me/cooking-sessions/${c.body.data.id}/complete`, { finishedAt: at, logMeal: null, ...(photoMediaId ? { photoMediaId } : {}) });
+    };
+    const find = async (who: string) => (await users[who]!.get('/me/cooked-recipes')).body.data.find((r: any) => r.recipe.id === 'rcp_lib_1');
+    const [a, b] = [await photo(), await photo()];
+    await a.send();
+    await b.send();
+    expect((await cook(a.id, '2026-11-01T12:00:00Z')).status).toBe(200);
+    expect((await cook(b.id, '2026-11-02T12:00:00Z')).status).toBe(200);
+    expect((await cook(null, '2026-11-03T12:00:00Z')).status).toBe(200);
+    const row = await find('omni');
+    expect(row).toMatchObject({ timesCooked: 3, photoUrl: expect.stringContaining(b.id) });
+    expect(row.recipe.imageUrl).toBe(row.photoUrl);
+    expect((await app.inject({ method: 'GET', url: new URL(row.photoUrl).pathname })).statusCode).toBe(200);
+    expect((await api.get('/me/home')).body.data.mostCooked[0].imageUrl).toBe(row.photoUrl);
+    expect((await api.get('/recipes/rcp_lib_1')).body.data.imageUrl).toBeNull();
+    expect(await find('vegan')).toBeUndefined();
+  });
+
   it('la API ve lo que importó otro proceso', async () => {
     const other = await testApp();
     try {

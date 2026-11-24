@@ -4,6 +4,8 @@ import type { DaysService } from './days.service.js';
 import type { RecommendationsService } from '../recipes/recommendations.service.js';
 import type { NudgesService } from './nudges.service.js';
 import type { ChefService } from '../chef/chef.service.js';
+import type { Storage } from '../../infrastructure/storage/storage.js';
+import { cookedPhotoUrl } from '../cooking/kitchen.service.js';
 import type { CookingService } from '../cooking/cooking.service.js';
 import type { MealSlotId } from '../../core/domain/catalog.js';
 import { localDate } from '../../core/shared/time.js';
@@ -22,6 +24,7 @@ export class HomeService {
     private readonly nudges: NudgesService,
     private readonly chef: ChefService,
     private readonly cooking: CookingService,
+    private readonly storage: Storage,
   ) {}
 
   async get(userId: string, tz: string, date?: string) {
@@ -46,7 +49,7 @@ export class HomeService {
         ? cooked
             .sort((a, b) => b.timesCooked - a.timesCooked || b.lastCookedAt.localeCompare(a.lastCookedAt))
             .slice(0, 4)
-            .map((r) => ({ recipeId: r.recipeId, title: r.title, imageUrl: r.imageUrl, timesCooked: r.timesCooked }))
+            .map((r) => ({ recipeId: r.recipeId, title: r.title, imageUrl: cookedPhotoUrl(this.storage, r.photoKey) ?? r.imageUrl, timesCooked: r.timesCooked }))
         : null,
       chef: { unreadCount: settled(unread) ?? 0 },
       activeCookingSession: settled(active),

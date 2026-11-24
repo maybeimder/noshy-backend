@@ -1,6 +1,6 @@
-import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, lt, ne, sql } from 'drizzle-orm';
 import type { Db, Executor } from '../../infrastructure/database/postgres/postgres.client.js';
-import { cookingSessions, recipes } from '../../infrastructure/database/postgres/schema.js';
+import { cookingSessions, media, recipes } from '../../infrastructure/database/postgres/schema.js';
 import type { MongoCollections, CookingEventDoc } from '../../infrastructure/database/mongo/collections.js';
 
 export type CookingSessionRow = typeof cookingSessions.$inferSelect;
@@ -88,9 +88,12 @@ export class CookingRepository {
         timeMax: recipes.timeMax,
         timesCooked: sql<number>`count(*)::int`,
         lastCookedAt: sql<string>`max(${cookingSessions.finishedAt})`,
+        /** Su foto más reciente de ese plato. */
+        photoKey: sql<string | null>`(array_agg(${media.storageKey} order by ${cookingSessions.finishedAt} desc) filter (where ${media.storageKey} is not null))[1]`,
       })
       .from(cookingSessions)
       .innerJoin(recipes, eq(recipes.id, cookingSessions.recipeId))
+      .leftJoin(media, and(eq(media.id, cookingSessions.photoMediaId), eq(media.userId, userId), ne(media.status, 'pending')))
       .where(and(eq(cookingSessions.userId, userId), eq(cookingSessions.status, 'completed')))
       .groupBy(cookingSessions.recipeId, recipes.title, recipes.imageUrl, recipes.timeMax);
   }
