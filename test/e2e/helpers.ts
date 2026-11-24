@@ -23,8 +23,8 @@ export const TEST_RABBITMQ_PREFIX = 'noshy_test';
 const food = (_id: string, name: string, o: Partial<FoodDoc> = {}): FoodDoc => ({ _id, name, brand: 'generic', popularity: 1, completeness: 0.5, search: normalizeText(`${name} ${o.brand ?? ''}`), ...o });
 const FOODS: FoodDoc[] = [
   food('usda:1', 'Quinua (cruda)', { popularity: 1000, servings: [{ label: '100 g', grams: 100 }, { label: '1 taza', grams: 170 }], foodGroups: ['cereals'], per100g: { kcal: 368, protein_g: 14, carbs_g: 64, fat_g: 6 } }),
-  food('7701', 'Quinua en grano', { brand: 'Nutrilón', quantity: '500 g', nova: 1 }),
-  food('7702', 'Galletas con quinua', { brand: 'Tosh', popularity: 5000, allergens: ['en:milk', 'en:gluten'], foodGroups: ['biscuits-and-cakes'] }),
+  food('7701', 'Quinua en grano', { brand: 'Nutrilón', quantity: '500 g', nova: 1, image: 'https://images.openfoodfacts.org/images/products/7701/front_es.4.400.jpg' }),
+  food('7702', 'Galletas con quinua', { brand: 'Tosh', popularity: 5000, image: 'http://inseguro.example/x.jpg', allergens: ['en:milk', 'en:gluten'], foodGroups: ['biscuits-and-cakes'] }),
   food('7703', 'Quinua sospechosa', { suspect: true, popularity: 9999 }),
   food('7704', 'Crema de leche', { popularity: 900 }),
   food('7705', 'Crema de leche', { brand: 'Alpina', quantity: '200 ml', allergens: ['en:milk'], popularity: 800 }),

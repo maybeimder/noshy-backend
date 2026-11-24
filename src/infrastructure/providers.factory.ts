@@ -9,7 +9,6 @@ import { LlmChefEngine, RuleBasedChefEngine, type ChefEngine } from '../modules/
 import { DEFAULT_OPENROUTER_MODELS, OpenRouterClient } from './ai/openrouter.client.js';
 import { LogMailer, type Mailer } from '../modules/account/account.providers.js';
 import { RuleBasedNutritionEstimator, type NutritionEstimator } from '../modules/recipes/recipes.providers.js';
-import { LlmRecipeEstimator, type RecipeEstimator } from '../modules/recipes/library.providers.js';
 
 export type Providers = {
   storage: Storage;
@@ -20,13 +19,8 @@ export type Providers = {
   chefEngine: ChefEngine;
   mailer: Mailer;
   nutritionEstimator: NutritionEstimator;
-  /** null sin OPENROUTER_API_KEY: estimar macros de la biblioteca necesita un modelo. */
-  recipeEstimator: RecipeEstimator | null;
 };
 
-/** Estimar recetas produce respuestas largas: más tiempo por modelo que al conversar, pero con un tope total. */
-const ESTIMATE_TIMEOUT_MS = 60_000;
-const ESTIMATE_DEADLINE_MS = 90_000;
 
 /**
  * GoF Factory de los servicios externos. Cada método decide la implementación según el entorno;
@@ -48,7 +42,6 @@ export class ProviderFactory {
       chefEngine: overrides.chefEngine ?? this.chefEngine(),
       mailer: overrides.mailer ?? this.mailer(),
       nutritionEstimator: overrides.nutritionEstimator ?? this.nutritionEstimator(),
-      recipeEstimator: overrides.recipeEstimator !== undefined ? overrides.recipeEstimator : this.recipeEstimator(),
     };
   }
 
@@ -98,11 +91,6 @@ export class ProviderFactory {
     }
     this.log.info({ models: this.models() }, 'chef: OpenRouter');
     return new LlmChefEngine(new OpenRouterClient(OPENROUTER_API_KEY, this.models(), this.log), rules, this.log);
-  }
-
-  recipeEstimator(): RecipeEstimator | null {
-    const key = this.env.OPENROUTER_API_KEY;
-    return key ? new LlmRecipeEstimator(new OpenRouterClient(key, this.models(), this.log, ESTIMATE_TIMEOUT_MS, fetch, ESTIMATE_DEADLINE_MS), this.log) : null;
   }
 
   private models() {

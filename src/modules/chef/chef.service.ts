@@ -37,8 +37,8 @@ export type StreamEvent =
   | { event: 'message.completed'; data: { messageId: string } }
   | { event: 'error'; data: { code: string; message: string } };
 
-/** Lo máximo que puede tardar una respuesta (conversar + generar recetas). */
-const STREAM_LOCK_MS = 150_000;
+/** Lo máximo que puede tardar una respuesta (todos los modelos, uno tras otro). */
+const STREAM_LOCK_MS = 90_000;
 /** Mensajes previos que ve el motor. */
 const HISTORY = 8;
 
@@ -190,13 +190,11 @@ export class ChefService {
       },
       hasEquipment: (id) => prefs.kitchen.equipmentIds.includes(id),
       recipeBrief: (recipeId) => this.recipes.brief(userId, recipeId).catch(() => null),
-      newRecipes: this.library.enabled
-        ? async ({ ingredients, excludeRecipeIds }) => {
+      newRecipes: async ({ ingredients, excludeRecipeIds }) => {
             const ids = await this.library.forRequest({ ingredients, avoid: this.recipes.avoidFor(prefs), excludeRecipeIds });
             const ok = new Set((await this.recipes.compatible(userId, ids)).map((r) => r.id));
             return (await this.recipes.cards(userId, ids)).filter((c) => ok.has(c.id));
-          }
-        : null,
+      },
     };
   }
 

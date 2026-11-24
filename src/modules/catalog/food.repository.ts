@@ -16,7 +16,7 @@ function withTimeout<T>(query: Promise<T>): Promise<T> {
 
 const PROJECTION = {
   name: 1, displayName: 1, brand: 1, state: 1, quantity: 1, per100g: 1, servings: 1, nova: 1, allergens: 1,
-  ingredients: 1, dietTags: 1, labels: 1, foodGroups: 1, popularity: 1, completeness: 1,
+  ingredients: 1, dietTags: 1, labels: 1, foodGroups: 1, image: 1, popularity: 1, completeness: 1,
 } as const;
 
 /** Catálogo de alimentos de Mongo (`products_slim`, ~7.6k). Solo lectura. */

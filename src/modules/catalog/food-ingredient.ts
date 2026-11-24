@@ -18,8 +18,6 @@ export const foodIngredientId = (foodId: string): string => `${PREFIX}${foodId}`
 export const isFoodIngredientId = (id: string): boolean => id.startsWith(PREFIX) && id.length > PREFIX.length && id.length <= MAX_ID;
 /** Ingrediente propio de Noshy: el que usan las recetas, los sustitutos y los precios. */
 export const isBaseIngredientId = (id: string): boolean => id.startsWith('ing_');
-/** Escrito a mano por alguien; no sale en las búsquedas de los demás. */
-export const isTextIngredientId = (id: string): boolean => id.startsWith(TEXT_PREFIX);
 export const foodIdOf = (ingredientId: string): string => ingredientId.slice(PREFIX.length);
 
 export const foodName = (d: FoodDoc): string => (d.displayName ?? d.name).trim();
@@ -64,7 +62,7 @@ const FLAVOR = /\bsabor(?: (?:a|al|de))? \w+/g;
 /** «Sin lactosa», «libre de gluten», «0% lactosa»: la palabra aparece justo porque no lo contiene. */
 const FREE_FROM = /\b(?:sin|libre de|cero|0 ?%)(?: adicion de)? \w+/g;
 
-export type Facts = { allergens: string[]; dietFlags: string[] };
+type Facts = { allergens: string[]; dietFlags: string[] };
 
 function facts(d: FoodDoc): Facts {
   const clean = (text: string) => normalizeText(text).replace(TRACES, ' ').replace(FLAVOR, ' ').replace(FREE_FROM, ' ');
@@ -267,7 +265,4 @@ export function ingredientFromText(text: string): IngredientRow {
 }
 
 /** Alérgenos que se leen en un texto (español o inglés). */
-export const allergensIn = (text: string): string[] => factsIn(text).allergens;
-
-/** Alérgenos y banderas de dieta que se leen en un texto. */
-export const factsIn = (text: string): Facts => facts({ _id: '', name: text, search: '' });
+export const allergensIn = (text: string): string[] => facts({ _id: '', name: text, search: '' }).allergens;

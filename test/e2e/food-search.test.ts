@@ -25,6 +25,9 @@ describe('buscador de ingredientes sobre Mongo', () => {
     const r = await search('quínua');
     expect(r.map((i) => i.id)).toEqual(['food_7701', 'food_usda:1', 'food_7702']);
     expect(r[0]).toMatchObject({ label: 'Quinua en grano · Nutrilón', defaultUnit: 'g', conflicts: [] });
+    // Foto solo si el producto la trae y es https.
+    expect(r.map((i) => i.imageUrl)).toEqual([expect.stringContaining('openfoodfacts'), null, null]);
+    expect((await search('arroz'))[0]).toMatchObject({ id: 'ing_rice', imageUrl: null });
     expect(r[2].conflicts).toContainEqual({ id: 'lactose', label: 'Lactosa' });
     expect((await search('quinuas')).length).toBe(3);
     expect((await search('qui')).length).toBeGreaterThan(0);

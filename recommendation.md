@@ -49,3 +49,13 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 ## 5. Foto de tu plato
 
 - `GET /me/cooked-recipes` trae `photoUrl` (la foto más reciente del usuario, o `null`). `recipe.imageUrl` ya viene con esa foto cuando existe; igual en `mostCooked` de Inicio. La receta en sí no cambia de portada.
+
+## 6. Explorar: recetario
+
+- Las recetas del recetario vienen **en inglés** (título, ingredientes y pasos), con calorías estimadas.
+- `source=library` devuelve solo el recetario. `meta.total` es el número de recetas y `meta.library` = `{ count, status }`: `filling` (trayendo más: volver a pedir), `paused` (no encontró más por ahora), `ready`.
+- El front ya lo usa: chip «Recetario», etiqueta de origen y `≈ kcal` cuando `nutritionEstimated`.
+
+## 7. Foto de los productos
+
+- `GET /catalog/ingredients/search` trae `imageUrl: string | null`. El front ya la muestra en el desplegable y, si no hay o no carga, pone el pictograma sobre el degradado de marca.

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, like, lt, notLike, or, sql, type SQL } from 'drizzle-orm';
 import type { Db, Executor } from '../../infrastructure/database/postgres/postgres.client.js';
 import {
   adaptationProposals,
@@ -29,14 +29,20 @@ export class RecipesRepository {
     return this.db.select().from(recipes).where(inArray(recipes.id, ids));
   }
 
-  /** Recetas traídas de la biblioteca (macros estimados). */
-  async countLibrary(): Promise<number> {
-    const [r] = await this.db.select({ n: count() }).from(recipes).where(eq(recipes.nutritionStatus, 'estimated'));
-    return r?.n ?? 0;
+  async rawTitles(): Promise<string[]> {
+    const rows = await this.db.select({ title: recipes.title }).from(recipes).where(like(recipes.id, 'rcp\\_raw\\_%'));
+    return rows.map((r) => r.title);
   }
 
-  async published(): Promise<RecipeRow[]> {
-    return this.db.select().from(recipes).where(eq(recipes.status, 'published'));
+  /** Inserta las que no existan (otra petición pudo traer las mismas) y dice cuáles entraron. */
+  async insertMissing(exec: Executor, rows: (typeof recipes.$inferInsert)[]): Promise<Set<string>> {
+    const inserted = await exec.insert(recipes).values(rows).onConflictDoNothing().returning({ id: recipes.id });
+    return new Set(inserted.map((r) => r.id));
+  }
+
+  /** Publicadas. Las de `recipes_raw` (en inglés) solo si se piden. */
+  async published(opts: { raw?: boolean } = {}): Promise<RecipeRow[]> {
+    return this.db.select().from(recipes).where(and(eq(recipes.status, 'published'), opts.raw ? undefined : notLike(recipes.id, 'rcp\\_raw\\_%')));
   }
 
   async ingredientsFor(recipeIds: string[], exec: Executor = this.db): Promise<Map<string, RecipeIngredientRow[]>> {

@@ -12,7 +12,7 @@ export const LogMealBody = z.union([
 ]);
 export const RecommendationsQuery = z.object({
   slot: MealSlot.optional(),
-  source: z.enum(['forYou', 'pantry']).optional(),
+  source: z.enum(['forYou', 'pantry', 'library']).optional(),
   usingIngredientIds: z
     .string()
     .max(500)

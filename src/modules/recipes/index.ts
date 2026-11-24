@@ -6,6 +6,5 @@ export * from './recipes.repository.js';
 export * from './recipes.service.js';
 export * from './recommendations.service.js';
 export * from './http/recipes.routes.js';
-export * from './library.providers.js';
 export * from './library.repository.js';
 export * from './library.service.js';

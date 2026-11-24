@@ -115,6 +115,8 @@ export type FoodDoc = {
   dietTags?: string[];
   labels?: string[];
   foodGroups?: string[];
+  /** Foto del producto (Open Food Facts). */
+  image?: string | null;
   popularity?: number;
   completeness?: number;
 };

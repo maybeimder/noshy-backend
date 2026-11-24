@@ -14,6 +14,9 @@ const CANDIDATE_POOL = 100;
 /** Tras un fallo de Mongo no se vuelve a intentar en este rato: cada intento haría esperar a quien escribe. */
 const RETRY_AFTER_MS = 10_000;
 
+/** Resultado del buscador; solo los productos de Mongo pueden traer foto. */
+type Hit = IngredientRow & { imageUrl?: string };
+
 /**
  * Buscador de ingredientes (despensa, lista de compras, crear receta): marca los que chocan con el usuario.
  * Las recomendaciones salen del catálogo de alimentos de Mongo (`products_slim`). Los ingredientes base de Noshy
@@ -47,6 +50,7 @@ export class IngredientSearchService {
         id: i.id,
         label: i.label,
         icon: i.icon,
+        imageUrl: i.imageUrl ?? null,
         defaultUnit: i.defaultUnit,
         allowedUnits: i.allowedUnits,
         conflicts: this.preferences.conflictsForFacts(prefs, i),
@@ -60,7 +64,7 @@ export class IngredientSearchService {
     return this.catalog.productOptions(ingredientId, storeId);
   }
 
-  private unique(list: IngredientRow[]) {
+  private unique(list: Hit[]) {
     const seen = new Set<string>();
     return list.filter((i) => {
       const key = normalizeText(i.label);
@@ -68,7 +72,7 @@ export class IngredientSearchService {
     });
   }
 
-  private async find(terms: string[], max: number): Promise<IngredientRow[]> {
+  private async find(terms: string[], max: number): Promise<Hit[]> {
     const foods = await this.searchFoods(terms);
     const own = this.catalog.matching(terms.map(stem));
     const base = own.filter((i) => isBaseIngredientId(i.id));
@@ -80,7 +84,7 @@ export class IngredientSearchService {
   }
 
   /** null si Mongo no responde: el buscador sigue con lo que hay en Postgres. */
-  private async searchFoods(terms: string[]): Promise<IngredientRow[] | null> {
+  private async searchFoods(terms: string[]): Promise<Hit[] | null> {
     if (Date.now() < this.downUntil) return null;
     try {
       const docs = await this.foods.candidates(terms, CANDIDATE_POOL);
@@ -96,7 +100,10 @@ export class IngredientSearchService {
           completeness: doc.completeness ?? 0,
         })),
       );
-      return ranked.map((r) => ingredientFromFood(r.doc)).filter((i) => isFoodIngredientId(i.id));
+      return ranked
+        // Sin https el navegador la bloquearía.
+        .map(({ doc }): Hit => ({ ...ingredientFromFood(doc), ...(doc.image?.startsWith('https://') ? { imageUrl: doc.image } : {}) }))
+        .filter((i) => isFoodIngredientId(i.id));
     } catch (err) {
       this.downUntil = Date.now() + RETRY_AFTER_MS;
       this.log.error({ err }, 'products_slim no responde: el buscador usa solo el catálogo local');

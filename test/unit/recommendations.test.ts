@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { kcalFit, score, type Candidate, type UserTaste } from '../../src/core/domain/recommendations.js';
 import { tasteFromSignals } from '../../src/modules/recipes/recommendations.service.js';
-import { credibleMacros, parseEstimates } from '../../src/modules/recipes/library.providers.js';
 import type { UserSignalDoc } from '../../src/infrastructure/database/mongo/collections.js';
 
 const c: Candidate = { recipeId: 'r', mealSlots: ['lunch'], timeMax: 20, cuisineId: null, flavorTags: ['creamy'], dishId: null, pantry: { have: 0, total: 4 }, usesIngredientIds: [], timesCookedLast14d: 0, compatible: true, kcal: 700 };
@@ -35,23 +34,5 @@ describe('recomendaciones', () => {
       ...[1, 2, 3].map((d) => sig('cooked', d, { recipeId: 'e', tags: ['spicy'] })),
     ]);
     expect(t).toEqual({ disliked: ['c'], liked: ['a', 'd'], learnedFlavors: ['spicy'] });
-  });
-});
-
-describe('estimación de macros', () => {
-  const recipe = {
-    id: 7, title: 'Arroz con pollo', servings: '4', minutes: 40, difficulty: 'facilito', mealSlots: ['lunch', 'brunch'], cuisine: 'marciana', flavors: ['comfort', 'x'],
-    ingredients: [{ label: 'Pollo', value: 500, unit: 'g' }, { label: 'Arroz', value: 300, unit: 'g' }], steps: ['Cocina todo.'], perServing: { kcal: 500, proteinG: 35, carbsG: 60, fatG: 13 },
-  };
-  it('acepta lo creíble y normaliza opciones raras', () => {
-    expect(parseEstimates({ recipes: [recipe] }, [7])).toEqual([
-      expect.objectContaining({ sourceId: 7, servings: 4, difficulty: 'medium', mealSlots: ['lunch'], cuisineId: null, flavorTags: ['comfort'], perServing: { kcal: 500, proteinG: 35, carbsG: 60, fatG: 13 } }),
-    ]);
-  });
-  it('descarta macros que no cuadran, ids ajenos y basura', () => {
-    expect(credibleMacros({ kcal: 500, proteinG: 2, carbsG: 5, fatG: 1 })).toBe(false);
-    expect(credibleMacros({ kcal: 5000, proteinG: 200, carbsG: 500, fatG: 244 })).toBe(false);
-    expect(parseEstimates({ recipes: [{ ...recipe, perServing: { kcal: 900, proteinG: 5, carbsG: 5, fatG: 5 } }, { ...recipe, id: 8 }, 'x', { ...recipe, ingredients: [] }] }, [7])).toEqual([]);
-    expect(parseEstimates('nada', [7])).toEqual([]);
   });
 });

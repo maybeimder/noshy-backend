@@ -2,156 +2,149 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from '../../infrastructure/database/postgres/postgres.client.js';
 import type { RawRecipeDoc } from '../../infrastructure/database/mongo/collections.js';
 import type { CatalogService } from '../catalog/catalog.service.js';
-import { allergensIn, factsIn } from '../catalog/food-ingredient.js';
 import type { RecipesRepository } from './recipes.repository.js';
 import type { RecipeLibraryRepository } from './library.repository.js';
-import type { EstimatedRecipe, RecipeEstimator } from './library.providers.js';
-import { CUISINES } from '../../core/domain/catalog.js';
+import { estimateRaw, type RawEstimate } from './raw-estimator.js';
+import { rawIngredientId, rawIngredientRow } from './raw-foods.js';
 
-/** Opciones por pedido, y por llamada al modelo. */
+/** Opciones por pedido al chef. */
 export const MAX_OPTIONS = 2;
-const SPARE = 3;
-const SEARCH_POOL = 60;
-/** «Explorar» se va llenando hasta aquí, con una tanda (≤ 2 recetas, una llamada) por visita. */
-export const EXPLORE_TARGET = 24;
-const EXPLORE_COOLDOWN_MS = 10 * 60_000;
-const EXPLORE_DAILY_CALLS = 12;
+const SEARCH_POOL = 300;
 
-const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/** Recetas del recetario que cada persona debería poder ver en «Explorar». */
+export const EXPLORE_TARGET = 60;
+/** Tope para todos: cada una se evalúa en memoria al explorar. */
+export const LIBRARY_MAX = 600;
+const SAMPLE = 400;
+const MAX_ROUNDS = 8;
+const PAUSE_MS = 10 * 60_000;
+/** Lo que espera la primera visita a que aparezcan; si tarda más, sigue en segundo plano. */
+const FIRST_WAIT_MS = 4_000;
 
 /** Dice si algo con esos alérgenos y banderas choca con la persona. */
 export type Avoid = (f: { allergens: string[]; dietFlags: string[] }) => boolean;
 
-const rawText = (d: RawRecipeDoc) => [...(d.ingredients ?? []), ...(d.ner ?? [])].join(' | ');
-export const libraryRecipeId = (sourceId: number) => `rcp_lib_${sourceId}`;
+/** Prefijo propio: solo salen en «Explorar» o si el chef las busca, no en Inicio ni en el menú (están en inglés). */
+export const RAW_PREFIX = 'rcp_raw_';
+export const libraryRecipeId = (sourceId: number) => `${RAW_PREFIX}${sourceId}`;
+
+const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const factsOf = (e: RawEstimate) => ({ allergens: e.ingredients.flatMap((i) => i.food.allergens), dietFlags: e.ingredients.flatMap((i) => i.food.diet) });
+
+type Entry = { id: string; estimate: RawEstimate };
 
 /**
- * Genera recetas a partir de `recipes_raw`, cuando alguien las pide, con macros ESTIMADOS por un modelo. Cada una se
- * estima una sola vez: queda guardada y la puede ver cualquiera sin gastar otra llamada. No se cruzan sus ingredientes
- * con el catálogo: son texto, y sirven para mostrarlos y detectar alérgenos.
+ * Recetario: recetas de `recipes_raw` tal cual (en inglés), con macros ESTIMADOS por tabla (`raw-estimator`), sin modelo.
+ * Solo entran las que se entienden completas. Quedan guardadas como recetas normales.
  */
 export class RecipeLibraryService {
+  private filling: Promise<number> | null = null;
+  private pausedUntil = 0;
+
   constructor(
     private readonly db: Db,
     private readonly library: RecipeLibraryRepository,
     private readonly repo: RecipesRepository,
     private readonly catalog: CatalogService,
-    private readonly estimator: RecipeEstimator | null,
     private readonly log: FastifyBaseLogger,
   ) {}
 
-  private lastGrowth = 0;
-  private growth = { day: '', calls: 0 };
-
-  /** Al abrir «Explorar»: agrega un par de recetas en segundo plano, sin gastar la cuota que usa el chef. */
-  growForExplore(avoid: Avoid, now = Date.now()): Promise<number> | null {
-    const day = new Date(now).toISOString().slice(0, 10);
-    if (this.growth.day !== day) this.growth = { day, calls: 0 };
-    if (!this.estimator || now - this.lastGrowth < EXPLORE_COOLDOWN_MS || this.growth.calls >= EXPLORE_DAILY_CALLS) return null;
-    this.lastGrowth = now;
-    this.growth.calls++;
-    return this.importBatch(EXPLORE_TARGET, avoid).catch((err: unknown) => {
-      this.log.warn({ err }, 'explorar: no se pudo agregar recetas');
-      return 0;
-    });
-  }
-
-  get enabled() {
-    return this.estimator !== null;
+  /** Hasta dos opciones distintas con esos ingredientes (en inglés) que no choquen con la persona. Devuelve ids de recetas. */
+  async forRequest(opts: { ingredients: string[]; avoid: Avoid; excludeRecipeIds: string[] }): Promise<string[]> {
+    const terms = [...new Set(opts.ingredients.map((t) => t.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/ +/g, ' ').trim()).filter((t) => t.length > 1))].slice(0, 5);
+    if (terms.length === 0) return [];
+    const docs = await this.library.search(terms, SEARCH_POOL);
+    const picked = await this.estimate(docs, opts.avoid, new Set(opts.excludeRecipeIds), new Set(), MAX_OPTIONS);
+    await this.save(picked);
+    this.log.info({ terms, found: docs.length, picked: picked.length }, 'recetario: pedido del chef');
+    return picked.map((e) => e.id);
   }
 
   /**
-   * Hasta dos opciones distintas con esos ingredientes (en inglés). `avoid` descarta, antes de gastar una llamada, lo
-   * que choca con la persona. Devuelve ids de recetas.
+   * Al abrir «Explorar»: si la persona ve menos de `EXPLORE_TARGET`, trae más que SÍ pueda comer. Espera un momento para
+   * que salgan de una vez. `paused`: no hubo suficientes (o Mongo falló) y se reintenta en un rato.
    */
-  async forRequest(opts: { ingredients: string[]; avoid: Avoid; excludeRecipeIds: string[] }): Promise<string[]> {
-    if (!this.estimator) return [];
-    const terms = [...new Set(opts.ingredients.map((t) => t.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/ +/g, ' ').trim()).filter((t) => t.length > 1))].slice(0, 5);
-    if (terms.length === 0) return [];
-    const titles = new Set<string>();
-    const docs = (await this.library.search(terms, SEARCH_POOL)).filter((d) => {
-      const title = normTitle(d.title);
-      if (titles.has(title) || opts.excludeRecipeIds.includes(libraryRecipeId(d._id)) || opts.avoid(factsIn(rawText(d)))) return false;
-      titles.add(title);
-      return true;
-    });
-    const known = new Set((await this.repo.byIds(docs.map((d) => libraryRecipeId(d._id)))).map((r) => r.id));
-    // Las ya estimadas primero: no cuestan nada.
-    const picked = [...docs.filter((d) => known.has(libraryRecipeId(d._id))), ...docs.filter((d) => !known.has(libraryRecipeId(d._id)))].slice(0, MAX_OPTIONS);
-    const fresh = picked.filter((d) => !known.has(libraryRecipeId(d._id)));
-    if (fresh.length) {
-      const estimated = await this.estimator.estimate(fresh).catch((err: unknown) => {
-        this.log.warn({ err }, 'no se pudieron estimar recetas');
-        return [];
-      });
-      for (const e of estimated) {
-        const doc = fresh.find((d) => d._id === e.sourceId);
-        if (doc && (await this.save(doc, e))) known.add(libraryRecipeId(doc._id));
-      }
-      this.log.info({ terms, asked: fresh.length, generated: estimated.length }, 'recetas generadas para un pedido');
+  async fillForExplore(visible: number, avoid: Avoid, now = Date.now()): Promise<'ready' | 'filling' | 'paused'> {
+    if (visible >= EXPLORE_TARGET) return 'ready';
+    if (!this.filling) {
+      if (now < this.pausedUntil) return 'paused';
+      this.filling = this.fill(EXPLORE_TARGET - visible, avoid, now).finally(() => (this.filling = null));
     }
-    return picked.map((d) => libraryRecipeId(d._id)).filter((id) => known.has(id));
+    const done = await Promise.race([this.filling.then(() => true), new Promise<false>((r) => setTimeout(r, FIRST_WAIT_MS, false))]);
+    return !done ? 'filling' : now < this.pausedUntil ? 'paused' : 'ready';
   }
 
-  /** Importa una tanda mientras haya menos de `target` recetas de la biblioteca. Devuelve cuántas entraron. */
-  async importBatch(target: number, avoid: Avoid = () => false): Promise<number> {
-    if (!this.estimator) return 0;
-    const room = target - (await this.repo.countLibrary());
-    if (room <= 0) return 0;
-    const sampled = await this.library.sample(MAX_OPTIONS * SPARE);
-    const known = new Set((await this.repo.byIds(sampled.map((d) => libraryRecipeId(d._id)))).map((r) => r.id));
-    const docs = sampled.filter((d) => !known.has(libraryRecipeId(d._id)) && !avoid(factsIn(rawText(d)))).slice(0, Math.min(MAX_OPTIONS, room));
-    if (docs.length === 0) return 0;
-    const estimated = await this.estimator.estimate(docs);
+  private async fill(wanted: number, avoid: Avoid, now: number): Promise<number> {
     let added = 0;
-    for (const e of estimated) {
-      const doc = docs.find((d) => d._id === e.sourceId);
-      if (doc && (await this.save(doc, e))) added++;
+    try {
+      const titles = new Set((await this.repo.rawTitles()).map(normTitle));
+      let room = LIBRARY_MAX - titles.size;
+      for (let round = 0; round < MAX_ROUNDS && added < wanted && room > 0; round++) {
+        const docs = await this.library.sample(SAMPLE);
+        const fresh = await this.estimate(docs, avoid, new Set(), titles, Math.min(wanted - added, room));
+        const n = await this.save(fresh);
+        added += n;
+        room -= n;
+      }
+    } catch (err) {
+      this.log.warn({ err }, 'recetario: no se pudo traer de recipes_raw');
     }
-    this.log.info({ asked: docs.length, added }, 'recetas de la biblioteca importadas');
+    if (added < wanted) this.pausedUntil = now + PAUSE_MS;
+    this.log.info({ added, wanted }, 'recetario: explorar');
     return added;
   }
 
-  private async save(doc: RawRecipeDoc, e: EstimatedRecipe): Promise<boolean> {
-    // Si el original declara un alérgeno que se perdió al traducir, la receta no es segura para quien lo evita.
-    const translated = new Set(e.ingredients.flatMap((i) => allergensIn(i.label)));
-    const lost = allergensIn(rawText(doc)).filter((a) => !translated.has(a));
-    if (lost.length) {
-      this.log.info({ sourceId: doc._id, lost }, 'receta descartada: la traducción perdió alérgenos');
-      return false;
+  private async estimate(docs: RawRecipeDoc[], avoid: Avoid, exclude: Set<string>, titles: Set<string>, limit: number): Promise<Entry[]> {
+    const out: Entry[] = [];
+    for (const [n, d] of docs.entries()) {
+      if (out.length >= limit) break;
+      // Es trabajo de CPU: se cede el turno para no frenar a los demás.
+      if (n % 20 === 19) await new Promise((r) => setImmediate(r));
+      const id = libraryRecipeId(d._id);
+      const title = normTitle(d.title ?? '');
+      if (exclude.has(id) || titles.has(title)) continue;
+      const estimate = estimateRaw(d);
+      if (!estimate || avoid(factsOf(estimate))) continue;
+      titles.add(title);
+      out.push({ id, estimate });
     }
-    // Los ingredientes van antes y fuera de la transacción: otro proceso los debe ver antes que la receta.
-    const ids = await this.catalog.addTexts(e.ingredients.map((i) => i.label));
-    const id = libraryRecipeId(doc._id);
-    // Otra persona pudo pedir la misma a la vez.
-    if (await this.repo.byId(id)) return true;
-    await this.db.transaction(async (tx) => {
-      await this.repo.insert(tx, {
-        id,
-        authorType: 'noshy',
-        status: 'published',
-        title: e.title,
-        slug: id,
-        cuisineId: e.cuisineId,
-        cuisineLabel: e.cuisineId ? CUISINES[e.cuisineId]! : null,
-        flavorTags: e.flavorTags,
-        mealSlots: e.mealSlots,
-        timeMin: e.minutes,
-        timeMax: e.minutes,
-        baseServings: e.servings,
-        difficulty: e.difficulty,
-        userSteps: e.steps.map((st) => ({ text: st.text, ingredientIds: st.uses.flatMap((k) => ids[k] ?? []) })),
-        nutritionPerServing: e.perServing,
-        nutritionStatus: 'estimated',
-        chefConsultable: { enabled: true, useMyStyle: false, suggestSubstitutes: true },
-        publishedAt: new Date(),
-      });
-      await this.repo.replaceIngredients(
+    return out;
+  }
+
+  /** Guarda las que falten. Los ingredientes van antes: otro proceso los debe ver antes que la receta. */
+  private async save(entries: Entry[]): Promise<number> {
+    if (entries.length === 0) return 0;
+    await this.catalog.addRows(entries.flatMap(({ estimate }) => estimate.ingredients.map((i) => rawIngredientRow(i.food, i.label))));
+    const now = new Date();
+    return this.db.transaction(async (tx) => {
+      const inserted = await this.repo.insertMissing(
         tx,
-        id,
-        e.ingredients.map((i, position) => ({ ingredientId: ids[position]!, value: i.value, unit: i.unit, prep: null, position })),
+        entries.map(({ id, estimate: e }) => ({
+          id,
+          authorType: 'noshy',
+          status: 'published',
+          title: e.title,
+          slug: id,
+          mealSlots: e.mealSlots,
+          timeMin: e.minutes,
+          timeMax: e.minutes,
+          baseServings: e.servings,
+          difficulty: e.difficulty,
+          userSteps: e.steps.map((text) => ({ text: text.slice(0, 1000) })),
+          nutritionPerServing: e.perServing,
+          nutritionStatus: 'estimated',
+          chefConsultable: { enabled: true, useMyStyle: false, suggestSubstitutes: true },
+          publishedAt: now,
+        })),
       );
+      for (const { id, estimate } of entries.filter((x) => inserted.has(x.id))) {
+        await this.repo.replaceIngredients(
+          tx,
+          id,
+          estimate.ingredients.map((i, position) => ({ ingredientId: rawIngredientId(i.food.key, i.label), value: i.value, unit: i.unit, prep: null, position })),
+        );
+      }
+      return inserted.size;
     });
-    return true;
   }
 }

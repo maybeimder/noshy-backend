@@ -221,7 +221,7 @@ const MAIN_SYSTEM =
   'Responde solo JSON: {"reply": string, "recipeIds": string[], "newRecipe": string[]}. recipeIds va vacío si no pidió qué comer; newRecipe, vacío.';
 const NEW_RECIPE =
   ' Excepción: si pidió una receta y NINGUNA candidata cumple lo que pidió (ingrediente, plato o estilo), deja recipeIds vacío y pon en newRecipe de 1 a 4 ingredientes principales ' +
-  'en inglés, singular y minúsculas, del más al menos importante (ej. ["chicken", "rice"]): el sistema le mostrará hasta 2 recetas reales. En reply di que se las buscas, sin describirlas.';
+  'en inglés, singular y minúsculas, del más al menos importante (ej. ["chicken", "rice"]): el sistema le mostrará hasta 2 recetas reales, que están en inglés. En reply di que se las buscas, sin describirlas.';
 const RECIPE_SYSTEM =
   `${STYLE}Máximo 4 frases. Responde dudas sobre la receta de abajo: sustituciones, cantidades, técnica, conservación y macros. Usa sus datos; si no sabes algo, dilo. ` +
   'Responde solo JSON: {"reply": string}.';

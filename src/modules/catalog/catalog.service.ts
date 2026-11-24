@@ -1,6 +1,6 @@
 import type { CatalogRepository, DishRow, IngredientRow, ProductRow, StoreRow, SubstituteRow } from './catalog.repository.js';
 import type { FoodRepository } from './food.repository.js';
-import { foodIdOf, ingredientFromFood, ingredientFromText, isBaseIngredientId, isFoodIngredientId, isTextIngredientId } from './food-ingredient.js';
+import { foodIdOf, ingredientFromFood, ingredientFromText, isBaseIngredientId, isFoodIngredientId } from './food-ingredient.js';
 import { normalizeText } from './food-text.js';
 import { AppError } from '../../core/shared/errors.js';
 import { cop } from '../../core/shared/money.js';
@@ -80,7 +80,7 @@ export class CatalogService {
    * Los desconocidos se ignoran: cada servicio los valida como siempre.
    */
   async ensure(ids: string[]): Promise<void> {
-    const missing = [...new Set(ids)].filter((id) => (isFoodIngredientId(id) || isTextIngredientId(id)) && !this.hasIngredient(id));
+    const missing = [...new Set(ids)].filter((id) => !isBaseIngredientId(id) && !this.hasIngredient(id));
     if (missing.length === 0) return;
     const stored = await this.repo.ingredientsByIds(missing);
     const toImport = missing.filter((id) => isFoodIngredientId(id) && !stored.some((i) => i.id === id));
@@ -110,15 +110,12 @@ export class CatalogService {
     return row.id;
   }
 
-  /** Ingredientes de texto tal cual, sin buscarles equivalente en el catálogo. Devuelve los ids en el mismo orden. */
-  async addTexts(texts: string[]): Promise<string[]> {
-    const rows = texts.map(ingredientFromText);
+  /** Agrega ingredientes ya armados (los del recetario). Los que existan se ignoran. */
+  async addRows(rows: IngredientRow[]): Promise<void> {
     const fresh = [...new Map(rows.map((r) => [r.id, r])).values()].filter((r) => !this.hasIngredient(r.id));
-    if (fresh.length) {
-      await this.repo.insertIngredients(fresh);
-      await this.remember(fresh);
-    }
-    return rows.map((r) => r.id);
+    if (fresh.length === 0) return;
+    await this.repo.insertIngredients(fresh);
+    await this.remember(fresh);
   }
 
   private async remember(rows: IngredientRow[]) {

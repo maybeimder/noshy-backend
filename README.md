@@ -135,7 +135,8 @@ src/
 ### Recomendaciones y biblioteca
 
 - El puntaje (`core/domain/recommendations.ts`) usa gustos, despensa, qué tan cerca queda la porción de las calorías de esa comida y lo aprendido (👎, 👍, me gusta, calificaciones y sabores cocinados; 60 días). Una receta sin macros no se recomienda.
-- **Biblioteca:** cuando alguien le pide al chef una receta y ninguna encaja, se buscan en `recipes_raw` por ingrediente y se generan **máximo 2 opciones**, traducidas y con macros **estimados** por un modelo (una llamada por pedido; lo ya estimado se reutiliza). Se descartan si los macros no cuadran con las kcal (±25 %), si la traducción pierde un alérgeno o si chocan con la persona. Sus ingredientes son texto (`txt_…`), no se cruzan con el catálogo. Las tarjetas traen `nutritionEstimated: true`. `pnpm recipes:import --target N` precarga algunas a mano.
+- **Recetario:** recetas de `recipes_raw` tal cual, **en inglés**, con macros **estimados sin IA** (`raw-estimator.ts` + tabla `raw-foods.ts`). Solo entran las que se entienden completas: cada línea reconocida, y ningún alérgeno en línea, título o pasos que la receta no declare. Ids `rcp_raw_<_id>`, ingredientes `raw_…`; `nutritionEstimated: true`. Salen en «Explorar» y cuando el chef las busca (máximo 2 por pedido), no en Inicio ni en el menú.
+- **Explorar:** `GET /me/recommendations` sin `slot`, `usingIngredientIds` ni `source=pantry` mezcla recetario, comunidad y Noshy (`source=library`: solo el recetario). Si la persona ve menos de 60 del recetario, se traen más que pueda comer en la misma visita (tope global 600). `meta.library` = `{ count, status: ready | filling | paused }`.
 - **Chef:** con `OPENROUTER_API_KEY` responde con IA texto libre, chips y dudas dentro de una receta, con los últimos 8 mensajes; prueba los modelos en orden y si todos fallan usa reglas. `GET /health` dice qué motor corre (`chef: openrouter | rules`).
 
 ## Event driven

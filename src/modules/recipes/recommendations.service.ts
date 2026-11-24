@@ -2,7 +2,7 @@ import type { RecipesRepository } from './recipes.repository.js';
 import { createHash } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
 import type { UserSignalDoc } from '../../infrastructure/database/mongo/collections.js';
-import type { RecipeLibraryService } from './library.service.js';
+import { EXPLORE_TARGET, type RecipeLibraryService } from './library.service.js';
 import type { ChefRepository } from '../chef/chef.repository.js';
 import type { CookingRepository } from '../cooking/cooking.repository.js';
 import type { RecipesService, UserContext, Evaluated } from './recipes.service.js';
@@ -12,7 +12,8 @@ import { decodeCursor, encodeCursor } from '../../core/shared/cursor.js';
 
 export type RecommendInput = {
   slot?: MealSlotId;
-  source?: 'forYou' | 'pantry';
+  /** `library`: solo el recetario (recetas de la biblioteca). */
+  source?: 'forYou' | 'pantry' | 'library';
   usingIngredientIds?: string[];
   maxMinutes?: number;
   excludeRecipeIds?: string[];
@@ -76,7 +77,7 @@ export class RecommendationsService {
 
   async ranked(userId: string, input: RecommendInput, ctx?: UserContext) {
     const c = ctx ?? (await this.recipes.context(userId));
-    const [taste, published, recent] = await Promise.all([this.taste(c), this.recipesRepo.published(), this.cooking.countsSince(userId, new Date(Date.now() - 14 * 86_400_000))]);
+    const [taste, published, recent] = await Promise.all([this.taste(c), this.recipesRepo.published({ raw: input.anyTime }), this.cooking.countsSince(userId, new Date(Date.now() - 14 * 86_400_000))]);
     const evaluated = await this.recipes.evaluateMany(published, c);
     const using = input.usingIngredientIds ?? [];
     const exclude = new Set(input.excludeRecipeIds ?? []);
@@ -96,7 +97,7 @@ export class RecommendationsService {
         compatible: e.evaluation.compatibility.ok,
         kcal: e.nutritionPerServing.kcal,
       };
-      const s = score(cand, input.anyTime ? { ...taste, maxCookingMinutes: null } : taste, { slot: input.slot, source: input.source ?? 'forYou', usingIngredientIds: using, maxMinutes: input.maxMinutes });
+      const s = score(cand, input.anyTime ? { ...taste, maxCookingMinutes: null } : taste, { slot: input.slot, source: input.source === 'pantry' ? 'pantry' : 'forYou', usingIngredientIds: using, maxMinutes: input.maxMinutes });
       if (s !== null) scored.push({ e, s });
     }
     // Los empates rotan por persona y día: con muchas recetas parecidas, por id saldrían siempre las mismas.
@@ -120,12 +121,13 @@ export class RecommendationsService {
   async recommend(userId: string, input: RecommendInput) {
     const limit = Math.min(input.limit ?? 3, 20);
     const offset = Number(decodeCursor(input.cursor)?.k ?? 0);
-    const ranked = this.isExplore(input) ? await this.explore(userId, input, offset === 0) : await this.ranked(userId, input);
+    const explored = this.isExplore(input) ? await this.explore(userId, input) : null;
+    const ranked = explored?.ranked ?? (await this.ranked(userId, input));
     const pageRows = ranked.slice(offset, offset + limit);
     const flags = await this.recipesRepo.viewerFlags(userId, pageRows.map((r) => r.e.recipe.id));
-    const data = pageRows.map(({ e }) => ({ ...this.recipes.card(e, flags.saved.has(e.recipe.id)), reason: this.reasonFor(e, this.isExplore(input) ? { ...input, anyTime: true } : input) }));
+    const data = pageRows.map(({ e }) => ({ ...this.recipes.card(e, flags.saved.has(e.recipe.id)), reason: this.reasonFor(e, explored ? { ...input, anyTime: true } : input) }));
     const nextCursor = offset + limit < ranked.length ? encodeCursor({ k: offset + limit, id: 'offset' }) : null;
-    return { data, meta: { nextCursor, limit } };
+    return { data, meta: { nextCursor, limit, ...(explored ? { total: ranked.length, library: explored.library } : {}) } };
   }
 
   /** «Explorar» pide sin comida, despensa ni ingrediente: ahí va el recetario completo. */
@@ -133,17 +135,28 @@ export class RecommendationsService {
     return !input.slot && input.source !== 'pantry' && !input.usingIngredientIds?.length;
   }
 
-  /** Comunidad, Noshy y biblioteca, intercaladas para que ninguna tape a las otras; cada una en su orden de afinidad. */
-  private async explore(userId: string, input: RecommendInput, firstPage: boolean) {
+  /**
+   * Recetario, comunidad y Noshy, intercaladas para que ninguna tape a las otras; cada una en su orden de afinidad.
+   * `library` dice cuántas del recetario puede ver y si se están trayendo más.
+   */
+  private async explore(userId: string, input: RecommendInput) {
     const ctx = await this.recipes.context(userId);
-    const ranked = await this.ranked(userId, { ...input, anyTime: true }, ctx);
-    if (firstPage) void this.library.growForExplore(this.recipes.avoidFor(ctx.prefs));
-    const origin = (e: Evaluated) => (e.recipe.authorType === 'user' ? 0 : e.recipe.nutritionStatus === 'estimated' ? 1 : 2);
+    let all = await this.ranked(userId, { ...input, maxMinutes: undefined, anyTime: true }, ctx);
+    const origin = (e: Evaluated) => (e.recipe.nutritionStatus === 'estimated' ? 0 : e.recipe.authorType === 'user' ? 1 : 2);
+    const count = () => all.filter((r) => origin(r.e) === 0).length;
+    const before = count();
+    const status = await this.library.fillForExplore(before, this.recipes.avoidFor(ctx.prefs));
+    // Lo que se acaba de traer sale en esta misma respuesta.
+    if (before < EXPLORE_TARGET && status !== 'paused') all = await this.ranked(userId, { ...input, maxMinutes: undefined, anyTime: true }, ctx);
+    const library = { count: count(), status };
+    const fits = input.maxMinutes === undefined ? all : await this.ranked(userId, { ...input, anyTime: true }, ctx);
     const seen = [0, 0, 0];
-    return ranked
+    const ranked = fits
+      .filter((r) => input.source !== 'library' || origin(r.e) === 0)
       .map((r) => ({ r, turn: seen[origin(r.e)]!++, o: origin(r.e) }))
       .sort((a, b) => a.turn - b.turn || a.o - b.o)
       .map((x) => x.r);
+    return { ranked, library };
   }
 
   /** Recetas que se pueden cocinar esta semana con lo que hay (≥ 60 % de ingredientes principales). */
