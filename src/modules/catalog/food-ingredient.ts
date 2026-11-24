@@ -264,5 +264,6 @@ export function ingredientFromText(text: string): IngredientRow {
   };
 }
 
-/** Alérgenos que se leen en un texto (español o inglés). */
-export const allergensIn = (text: string): string[] => facts({ _id: '', name: text, search: '' }).allergens;
+/** Alérgenos y banderas de dieta que se leen en un texto (español o inglés). */
+export const factsIn = (text: string): Facts => facts({ _id: '', name: text, search: '' });
+export const allergensIn = (text: string): string[] => factsIn(text).allergens;

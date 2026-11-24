@@ -6,7 +6,7 @@ import type { UsersRepository } from '../auth/auth.repository.js';
 import type { ChefBlock, ChefMessageDoc, ChefThreadDoc } from '../../infrastructure/database/mongo/collections.js';
 import type { ChefEngine, ChefInputResolved, ChefTools } from './chef.providers.js';
 import type { RecommendationsService } from '../recipes/recommendations.service.js';
-import type { RecipeLibraryService } from '../recipes/library.service.js';
+import type { GeneratedRecipesService } from '../recipes/generated.service.js';
 import type { PreferencesRow } from '../onboarding/preferences.repository.js';
 import type { RecipesService } from '../recipes/recipes.service.js';
 import type { InsightsService } from './insights.service.js';
@@ -38,7 +38,7 @@ export type StreamEvent =
   | { event: 'error'; data: { code: string; message: string } };
 
 /** Lo máximo que puede tardar una respuesta (todos los modelos, uno tras otro). */
-const STREAM_LOCK_MS = 90_000;
+const STREAM_LOCK_MS = 120_000;
 /** Mensajes previos que ve el motor. */
 const HISTORY = 8;
 
@@ -55,7 +55,7 @@ export class ChefService {
     private readonly preferences: PreferencesService,
     private readonly catalog: CatalogService,
     private readonly engine: ChefEngine,
-    private readonly library: RecipeLibraryService,
+    private readonly generated: GeneratedRecipesService,
     private readonly outbox: Outbox,
   ) {}
 
@@ -190,11 +190,11 @@ export class ChefService {
       },
       hasEquipment: (id) => prefs.kitchen.equipmentIds.includes(id),
       recipeBrief: (recipeId) => this.recipes.brief(userId, recipeId).catch(() => null),
-      newRecipes: async ({ ingredients, excludeRecipeIds }) => {
-            const ids = await this.library.forRequest({ ingredients, avoid: this.recipes.avoidFor(prefs), excludeRecipeIds });
-            const ok = new Set((await this.recipes.compatible(userId, ids)).map((r) => r.id));
-            return (await this.recipes.cards(userId, ids)).filter((c) => ok.has(c.id));
+      createRecipes: async (drafts) => {
+        const ctx = await this.recipes.context(userId);
+        return this.recipes.cards(userId, await this.generated.create(userId, prefs, ctx.pantry, drafts), ctx);
       },
+      pantry: async () => [...(await this.recipes.context(userId)).pantry].filter((id) => this.catalog.hasIngredient(id)).map((id) => this.catalog.label(id)),
     };
   }
 

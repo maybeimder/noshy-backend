@@ -20,6 +20,12 @@ export class MediaController {
     return reply.code(200).send();
   };
 
+  /** Fotos de referencia por tipo de plato (`src/assets/dishes`). */
+  dishPhoto = async (req: Req<{ Params: { file: string } }>, reply: Rep) => {
+    const file = await this.c.services.media.dishPhoto(req.params.file);
+    return reply.header('Content-Type', 'image/webp').header('Cross-Origin-Resource-Policy', 'cross-origin').header('Cache-Control', 'public, max-age=604800').send(file);
+  };
+
   storageGet = async (req: Req<{ Params: { '*': string } }>, reply: Rep) => {
     const { file, contentType } = await this.c.services.media.publicFile(req.params['*']);
     return reply.header('Content-Type', contentType).header('Cross-Origin-Resource-Policy', 'cross-origin').header('Cache-Control', 'public, max-age=86400').send(file);

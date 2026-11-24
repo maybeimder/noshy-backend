@@ -15,6 +15,11 @@ if (env.SEED_ON_START) {
 }
 const app = await buildApp({ env });
 const { events } = app.container;
+// Sin bloquear el arranque: son cientos de recetas la primera vez y ninguna después.
+void app.container.services.recipePhotos
+  .backfill()
+  .then((n) => n && app.log.info({ n }, 'fotos de referencia asignadas'))
+  .catch((err: unknown) => app.log.warn({ err }, 'no se pudieron asignar las fotos de referencia'));
 const scheduler = new Scheduler(app.container);
 
 // La API siempre publica lo que escribe en el outbox cuando hay RabbitMQ (latencia mínima).

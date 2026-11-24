@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, like, lt, notLike, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, like, lt, ne, notLike, or, sql, type SQL } from 'drizzle-orm';
 import type { Db, Executor } from '../../infrastructure/database/postgres/postgres.client.js';
 import {
   adaptationProposals,
@@ -43,6 +43,19 @@ export class RecipesRepository {
   /** Publicadas. Las de `recipes_raw` (en inglés) solo si se piden. */
   async published(opts: { raw?: boolean } = {}): Promise<RecipeRow[]> {
     return this.db.select().from(recipes).where(and(eq(recipes.status, 'published'), opts.raw ? undefined : notLike(recipes.id, 'rcp\\_raw\\_%')));
+  }
+
+  /** Sin foto propia: nada, el CDN de muestra o una de referencia (que se recalcula si cambian las reglas o el dominio). */
+  async needingPhoto(): Promise<{ id: string; title: string; imageUrl: string | null }[]> {
+    return this.db
+      .select({ id: recipes.id, title: recipes.title, imageUrl: recipes.imageUrl })
+      .from(recipes)
+      .where(or(like(recipes.imageUrl, 'https://cdn.noshy.app/%'), like(recipes.imageUrl, '%/api/v1/dishes/%'), and(isNull(recipes.imageUrl), ne(recipes.authorType, 'user'))));
+  }
+
+  /** Solo si nadie la cambió entretanto. */
+  async setPhoto(id: string, from: string | null, to: string | null) {
+    await this.db.update(recipes).set({ imageUrl: to }).where(and(eq(recipes.id, id), from === null ? isNull(recipes.imageUrl) : eq(recipes.imageUrl, from)));
   }
 
   async ingredientsFor(recipeIds: string[], exec: Executor = this.db): Promise<Map<string, RecipeIngredientRow[]>> {

@@ -11,5 +11,6 @@ export async function mediaRoutes(app: FastifyInstance) {
 
   // Driver local de storage: imita el PUT directo a S3 y sirve los archivos públicos.
   r.put('/storage/upload', { schema: { hide: true, querystring: StorageUploadQuery } }, (req, rep) => c.storagePut(req, rep));
+  r.get('/dishes/:file', { schema: { hide: true } }, (req, rep) => c.dishPhoto(req as never, rep));
   r.get('/storage/files/*', { schema: { hide: true } }, (req, rep) => c.storageGet(req as never, rep));
 }

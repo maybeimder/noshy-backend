@@ -10,18 +10,6 @@ export class RecipeLibraryRepository {
 
   constructor(private readonly recipes: Collection<RawRecipeDoc>) {}
 
-  /** Recetas que llevan todos esos ingredientes (en inglés, como en `ner`). Si no hay con todos, va soltando los últimos. */
-  async search(ingredients: string[], limit: number): Promise<RawRecipeDoc[]> {
-    for (let n = ingredients.length; n >= 1; n--) {
-      const docs = await this.recipes
-        .find({ ner: { $all: ingredients.slice(0, n) }, nIngredients: { $gte: 3, $lte: 12 }, 'directions.0': { $exists: true } }, { projection: PROJECTION, maxTimeMS: TIMEOUT_MS })
-        .limit(limit)
-        .toArray();
-      if (docs.length) return docs;
-    }
-    return [];
-  }
-
   /** Un tramo desde un punto al azar. Recorre por _id: cuesta lo mismo en cualquier parte. */
   async sample(limit: number): Promise<RawRecipeDoc[]> {
     if (this.maxId === null) {

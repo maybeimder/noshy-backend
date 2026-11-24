@@ -2,6 +2,10 @@ import type { MediaRepository } from './media.repository.js';
 import type { Storage } from '../../infrastructure/storage/storage.js';
 import { Errors, field } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
+import { readFile } from 'node:fs/promises';
+import { isDishFile } from '../recipes/dish-photos.js';
+
+const DISHES_DIR = new URL('../../assets/dishes/', import.meta.url);
 
 const MEDIA_RULES: Record<string, { maxBytes: number; types: string[] }> = {
   recipeCover: { maxBytes: 8 * 1024 * 1024, types: ['image/jpeg', 'image/png', 'image/heic', 'image/webp'] },
@@ -41,6 +45,14 @@ export class MediaService {
     if (body.length > m.sizeBytes * 1.05 + 1024) throw Errors.tooLarge();
     await this.storage.put(key, body, m.contentType);
     await this.media.markUploaded(m.id);
+  }
+
+  async dishPhoto(name: string): Promise<Buffer> {
+    // Solo nombres del banco: el parámetro nunca llega al disco tal cual.
+    if (!isDishFile(name)) throw Errors.notFound();
+    return readFile(new URL(name, DISHES_DIR)).catch(() => {
+      throw Errors.notFound();
+    });
   }
 
   /** Archivo público de `media/` (solo el driver local; en producción lo sirve el CDN). */

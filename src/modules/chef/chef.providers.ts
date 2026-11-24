@@ -29,8 +29,10 @@ export type ChefTools = {
   hasEquipment(id: string): boolean;
   /** Ingredientes, macros y pasos de una receta, en texto. */
   recipeBrief(recipeId: string): Promise<string | null>;
-  /** Hasta 2 recetas nuevas con esos ingredientes (en inglés), compatibles con la persona. null = no disponible. */
-  newRecipes: ((opts: { ingredients: string[]; excludeRecipeIds: string[] }) => Promise<RecipeCard[]>) | null;
+  /** Guarda las recetas que inventó el motor (JSON del modelo) y devuelve las que la persona puede comer. */
+  createRecipes(drafts: unknown[]): Promise<RecipeCard[]>;
+  /** Lo que tiene en la despensa. */
+  pantry(): Promise<string[]>;
 };
 
 export type ChefTurn = {
@@ -144,10 +146,10 @@ const RECIPE_PROMPTS = [{ id: 'sp_airfryer', label: '¿Puedo hacerla en airfryer
 const MAIN_PROMPTS = [{ id: 'sp_lactosefree', label: 'Sin lactosa' }, { id: 'sp_whattobuy', label: '¿Qué compro?' }, { id: 'sp_moreprotein', label: 'Más proteína' }];
 
 /**
- * Motor con LLM (OpenRouter). Responde texto libre y chips, con la conversación a la vista: en el hilo principal elige
- * entre candidatas reales; en el de una receta, responde dudas con sus ingredientes, macros y pasos.
- * «Otra idea», «¿Qué compro?» y la versión airfryer (que crea una propuesta) siguen en reglas.
- * Si el modelo falla o responde mal, cae al motor de reglas.
+ * Motor con LLM (OpenRouter). Responde texto libre y chips, con la conversación a la vista: en el hilo principal inventa
+ * recetas (JSON que el backend valida y guarda) o, si se lo piden, muestra una que ya existe; en el de una receta, responde
+ * dudas con sus ingredientes, macros y pasos. «¿Qué compro?» y la versión airfryer (que crea una propuesta) siguen en reglas.
+ * Si el modelo falla o responde mal, cae al motor de reglas, que recomienda de las que existen.
  */
 export class LlmChefEngine implements ChefEngine {
   constructor(
@@ -158,7 +160,7 @@ export class LlmChefEngine implements ChefEngine {
 
   async *reply(turn: ChefTurn, tools: ChefTools): AsyncIterable<ChefChunk> {
     const { input } = turn;
-    const text = input.kind === 'text' ? input.text : input.kind === 'anotherIdea' || FIXED_OPTIONS.has(input.optionId) ? null : input.label;
+    const text = input.kind === 'text' ? input.text : input.kind === 'anotherIdea' ? ANOTHER_IDEA : FIXED_OPTIONS.has(input.optionId) ? null : input.label;
     if (!text || /air ?fryer|freidora de aire|^\W*qu[eé] (?:me falta )?(?:compro|comprar)\W*$/i.test(text)) {
       yield* this.fallback.reply(turn, tools);
       return;
@@ -166,16 +168,22 @@ export class LlmChefEngine implements ChefEngine {
     const context = turn.thread.context;
     let reply: string;
     let cards: RecipeCard[] = [];
-    let wanted: string[] = [];
+    let drafts: unknown[] = [];
     try {
       if (context.type === 'recipe') reply = (await this.ask(turn, tools, text, RECIPE_SYSTEM, `Receta:\n${(await tools.recipeBrief(context.recipeId)) ?? context.title}`)).reply;
       else {
-        const [candidates, missing] = await Promise.all([tools.candidates({ excludeRecipeIds: turn.shownRecipeIds, limit: 10 }), tools.missingFromShoppingList()]);
+        const [candidates, missing, pantry] = await Promise.all([tools.candidates({ excludeRecipeIds: turn.shownRecipeIds, limit: 6 }), tools.missingFromShoppingList(), tools.pantry()]);
         const list = candidates.map((c) => `- ${c.id} · ${c.title} · ${c.totalTimeMinutes.max} min · ${c.nutritionPerServing.kcal} kcal · ${c.nutritionPerServing.proteinG} g proteína`).join('\n');
-        const answer = await this.ask(turn, tools, text, tools.newRecipes ? MAIN_SYSTEM + NEW_RECIPE : MAIN_SYSTEM, `Candidatas:\n${list || '(ninguna)'}\nEn su lista de compras: ${missing.slice(0, 15).join(', ') || 'nada'}`);
+        const answer = await this.ask(
+          turn,
+          tools,
+          text,
+          MAIN_SYSTEM,
+          `En su despensa: ${pantry.slice(0, MAX_PANTRY).join(', ') || 'no sé'}\nEn su lista de compras: ${missing.slice(0, 15).join(', ') || 'nada'}\nRecetas que ya existen en Noshy:\n${list || '(ninguna)'}`,
+        );
         reply = answer.reply;
         cards = candidates.filter((c) => answer.recipeIds.includes(c.id)).slice(0, MAX_CARDS);
-        wanted = tools.newRecipes && !cards.length ? answer.newRecipe : [];
+        drafts = cards.length ? [] : answer.recipes.slice(0, MAX_CARDS);
       }
     } catch (err) {
       this.log.warn({ err }, 'LLM del chef falló; uso reglas');
@@ -183,45 +191,62 @@ export class LlmChefEngine implements ChefEngine {
       return;
     }
     for (const w of words(reply)) yield { type: 'text', delta: w };
-    if (wanted.length && tools.newRecipes) {
-      cards = await tools.newRecipes({ ingredients: wanted, excludeRecipeIds: turn.shownRecipeIds }).catch((err: unknown) => {
-        this.log.warn({ err }, 'no se pudieron generar recetas');
+    const created = drafts.length > 0;
+    let own = false;
+    if (created) {
+      cards = await tools.createRecipes(drafts).catch((err: unknown) => {
+        this.log.warn({ err }, 'no se pudo guardar la receta del chef');
         return [];
       });
-      if (!cards.length) for (const w of words(' No encontré una que te sirva con eso; prueba con otro ingrediente.')) yield { type: 'text', delta: w };
+      own = cards.length > 0;
+      if (!own) {
+        // Venía incompleta o con algo que no puede comer: mejor una que sí existe.
+        const backup = await tools.recommend({ excludeRecipeIds: turn.shownRecipeIds }).catch(() => null);
+        if (backup) cards = [backup];
+        for (const w of words(backup ? ' La que pensé no me convenció para ti, así que mejor prueba esta:' : ' La que pensé no me convenció para ti. ¿Me pides otra con un ingrediente distinto?')) yield { type: 'text', delta: w };
+      }
     }
+    const reasonLabel = own ? 'Creada para ti' : 'Para ti';
     for (const [i, card] of cards.slice(0, MAX_CARDS).entries()) {
       const id = `b_card${i}`;
       yield { type: 'recipes', recipeIds: [card.id] };
-      yield { type: 'block', block: { id, type: 'recipeCard', recipe: { ...card, reasonLabel: 'Para ti' } as unknown as Record<string, unknown>, actions: ['save', 'addToShoppingList', 'cook'] } };
+      yield { type: 'block', block: { id, type: 'recipeCard', recipe: { ...card, reasonLabel, reason: { kind: 'forYou', label: reasonLabel } } as unknown as Record<string, unknown>, actions: ['save', 'addToShoppingList', 'cook'] } };
       yield { type: 'block', block: { type: 'feedbackPrompt', targetBlockId: id, label: '¿Te late esta idea?', allowAnotherIdea: i === Math.min(cards.length, MAX_CARDS) - 1 } };
     }
     yield { type: 'block', block: { type: 'suggestedPrompts', options: context.type === 'recipe' ? RECIPE_PROMPTS : MAIN_PROMPTS } };
   }
 
-  private async ask(turn: ChefTurn, tools: ChefTools, text: string, system: string, context: string): Promise<{ reply: string; recipeIds: string[]; newRecipe: string[] }> {
+  private async ask(turn: ChefTurn, tools: ChefTools, text: string, system: string, context: string): Promise<{ reply: string; recipeIds: string[]; recipes: unknown[] }> {
     const out = (await this.llm.chatJson([
       { role: 'system', content: `${system}\n\nPersona: ${turn.userName}. Preferencias y restricciones: ${tools.preferencesSummary()}\n${context}` },
       ...turn.history.map((m) => ({ role: m.role === 'chef' ? ('assistant' as const) : ('user' as const), content: m.text })),
       { role: 'user', content: text },
-    ])) as { reply?: unknown; recipeIds?: unknown; recipeId?: unknown; newRecipe?: unknown } | null;
+    ])) as { reply?: unknown; recipeIds?: unknown; recipeId?: unknown; recipes?: unknown; recipe?: unknown } | null;
     const strings = (v: unknown) => (Array.isArray(v) ? v : [v]).filter((x): x is string => typeof x === 'string');
     if (typeof out?.reply !== 'string' || !out.reply.trim()) throw new Error('El modelo no devolvió «reply»');
-    return { reply: out.reply.trim(), recipeIds: strings(out.recipeIds ?? out.recipeId), newRecipe: strings(out.newRecipe) };
+    return { reply: out.reply.trim(), recipeIds: strings(out.recipeIds ?? out.recipeId), recipes: [out.recipes ?? out.recipe ?? []].flat().filter((r) => typeof r === 'object' && r !== null) };
   }
 }
 
 const MAX_CARDS = 2;
+const MAX_PANTRY = 40;
+const ANOTHER_IDEA = 'Dame otra idea, distinta a las anteriores.';
 
 const STYLE =
   'Eres el chef de Noshy: hablas en español de Colombia, cálido y breve. Respeta siempre sus alergias y restricciones; nunca propongas algo que choque con ellas. ' +
   'Solo hablas de cocina, comida, compras y nutrición general; no das consejo médico. ';
+const RECIPE_SHAPE =
+  '{"title": string, "dish": string, "servings": number, "minutes": number, "difficulty": "easy"|"medium"|"hard", "mealSlots": ("breakfast"|"snack1"|"lunch"|"snack2"|"dinner")[], ' +
+  '"ingredients": [{"name": string, "value": number, "unit": "g"|"ml"|"unit"|"clove"|"tbsp"|"tsp"|"cup"|"pinch"|"toTaste", "grams": number}], ' +
+  '"steps": [{"text": string, "minutes": number, "ingredients": string[]}], "perServing": {"kcal": number, "proteinG": number, "carbsG": number, "fatG": number}}';
 const MAIN_SYSTEM =
-  `${STYLE}Máximo 3 frases. Responde la pregunta primero. Si la persona quiere una idea o receta, recomienda una o máximo dos de la lista de candidatas usando su id exacto; no inventes recetas ni ids. ` +
-  'Responde solo JSON: {"reply": string, "recipeIds": string[], "newRecipe": string[]}. recipeIds va vacío si no pidió qué comer; newRecipe, vacío.';
-const NEW_RECIPE =
-  ' Excepción: si pidió una receta y NINGUNA candidata cumple lo que pidió (ingrediente, plato o estilo), deja recipeIds vacío y pon en newRecipe de 1 a 4 ingredientes principales ' +
-  'en inglés, singular y minúsculas, del más al menos importante (ej. ["chicken", "rice"]): el sistema le mostrará hasta 2 recetas reales, que están en inglés. En reply di que se las buscas, sin describirlas.';
+  `${STYLE}Responde la pregunta primero. Si la persona quiere qué comer, una idea o una receta, INVENTA TÚ una receta original, casera y realista, hecha para ella: según lo que pidió, lo que tiene y sus metas. ` +
+  'Una sola; dos solo si pide opciones. No repitas las de la conversación ni copies las que ya existen. En reply preséntala en máximo 2 frases, sin ingredientes ni pasos: la app muestra la receta aparte. ' +
+  'recipeIds: solo si pide expresamente una receta que ya exista en Noshy (ids exactos); si no, vacío. recipes: vacío si no pidió qué comer. ' +
+  `Responde solo JSON: {"reply": string, "recipeIds": string[], "recipes": [${RECIPE_SHAPE}]}. ` +
+  'Reglas de cada receta: todo en español; máximo 12 ingredientes y 7 pasos cortos. name es un solo alimento, sin cantidad ni preparación; si está en su despensa, escríbelo igual. ' +
+  'Cantidades para todas las porciones; grams es el peso total de ese ingrediente. Todo lo que usen los pasos (aceite, sal y agua también) va en ingredients. ' +
+  'steps[].minutes solo si hay que esperar ese tiempo (si no, 0); steps[].ingredients, los nombres que se usan ahí. dish: el tipo de plato en inglés (ej. "chicken curry"). perServing: por porción, calculado con las cantidades.';
 const RECIPE_SYSTEM =
   `${STYLE}Máximo 4 frases. Responde dudas sobre la receta de abajo: sustituciones, cantidades, técnica, conservación y macros. Usa sus datos; si no sabes algo, dilo. ` +
   'Responde solo JSON: {"reply": string}.';

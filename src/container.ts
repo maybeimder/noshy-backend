@@ -24,7 +24,7 @@ import { OnboardingService, PreferencesRepository, PreferencesService } from './
 import { PantryRepository, PantryService, PantrySetupService } from './modules/pantry/index.js';
 import { ProfileService } from './modules/profile/index.js';
 import { ReceiptsRepository, ReceiptsService } from './modules/receipts/index.js';
-import { NutritionService, RecipeLibraryRepository, RecipeLibraryService, RecipesRepository, RecipesService, RecommendationsService } from './modules/recipes/index.js';
+import { NutritionService, GeneratedRecipesService, RecipeLibraryRepository, RecipeLibraryService, RecipePhotosService, RecipesRepository, RecipesService, RecommendationsService } from './modules/recipes/index.js';
 import { ShoppingRepository, ShoppingService } from './modules/shopping/index.js';
 
 export type { Providers };
@@ -86,7 +86,9 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   const media = new MediaService(repos.media, providers.storage);
   // recipes
   const recipes = new RecipesService(db, repos.recipes, repos.pantry, repos.shopping, repos.chef, catalog, preferences, repos.users, outbox, env.SHARE_BASE_URL);
-  const recipeLibrary = new RecipeLibraryService(db, new RecipeLibraryRepository(mongo.rawRecipes), repos.recipes, catalog, log);
+  const recipePhotos = new RecipePhotosService(repos.recipes, catalog, env.PUBLIC_BASE_URL);
+  const recipeLibrary = new RecipeLibraryService(db, new RecipeLibraryRepository(mongo.rawRecipes), repos.recipes, catalog, recipePhotos, log);
+  const generatedRecipes = new GeneratedRecipesService(db, repos.recipes, catalog, preferences, recipePhotos, log);
   const recommendations = new RecommendationsService(repos.recipes, recipes, repos.cooking, repos.chef, log, recipeLibrary);
   const nutrition = new NutritionService(repos.recipes, catalog, providers.nutritionEstimator);
   // pantry, receipts, shopping, menus
@@ -100,7 +102,7 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   const nudges = new NudgesService(db, repos.nudges, repos.pantry, recommendations, outbox);
   // chef
   const insights = new InsightsService(repos.chef, outbox);
-  const chef = new ChefService(repos.chef, repos.recipes, repos.shopping, repos.users, recipes, recommendations, insights, preferences, catalog, providers.chefEngine, recipeLibrary, outbox);
+  const chef = new ChefService(repos.chef, repos.recipes, repos.shopping, repos.users, recipes, recommendations, insights, preferences, catalog, providers.chefEngine, generatedRecipes, outbox);
   // cooking
   const cooking = new CookingService(db, repos.cooking, repos.recipes, repos.media, recipes, pantry, days, outbox);
   const kitchen = new KitchenService(repos.cooking, repos.recipes, catalog, providers.storage);
@@ -124,6 +126,8 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
     recipes,
     recommendations,
     recipeLibrary,
+    recipePhotos,
+    generatedRecipes,
     nutrition,
     pantry,
     pantrySetup,

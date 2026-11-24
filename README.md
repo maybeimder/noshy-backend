@@ -135,8 +135,10 @@ src/
 ### Recomendaciones y biblioteca
 
 - El puntaje (`core/domain/recommendations.ts`) usa gustos, despensa, qué tan cerca queda la porción de las calorías de esa comida y lo aprendido (👎, 👍, me gusta, calificaciones y sabores cocinados; 60 días). Una receta sin macros no se recomienda.
-- **Recetario:** recetas de `recipes_raw` tal cual, **en inglés**, con macros **estimados sin IA** (`raw-estimator.ts` + tabla `raw-foods.ts`). Solo entran las que se entienden completas: cada línea reconocida, y ningún alérgeno en línea, título o pasos que la receta no declare. Ids `rcp_raw_<_id>`, ingredientes `raw_…`; `nutritionEstimated: true`. Salen en «Explorar» y cuando el chef las busca (máximo 2 por pedido), no en Inicio ni en el menú.
+- **Recetario:** recetas de `recipes_raw` tal cual, **en inglés**, con macros **estimados sin IA** (`raw-estimator.ts` + tabla `raw-foods.ts`). Solo entran las que se entienden completas: cada línea reconocida, y ningún alérgeno en línea, título o pasos que la receta no declare. Ids `rcp_raw_<_id>`, ingredientes `raw_…`; `nutritionEstimated: true`. Salen en «Explorar», no en Inicio ni en el menú.
 - **Explorar:** `GET /me/recommendations` sin `slot`, `usingIngredientIds` ni `source=pantry` mezcla recetario, comunidad y Noshy (`source=library`: solo el recetario). Si la persona ve menos de 60 del recetario, se traen más que pueda comer en la misma visita (tope global 600). `meta.library` = `{ count, status: ready | filling | paused }`.
+- **Fotos de referencia:** las recetas sin foto propia reciben la de un plato parecido (`dish-photos.ts`, archivos CC0 en `src/assets/dishes`, servidos en `/api/v1/dishes`), con `imageIsReference: true`. Se asignan al guardar y, a las que ya estaban, al arrancar la API.
+- **Recetas del chef:** el modelo inventa la receta en JSON; `generated.service.ts` la valida, la lleva al catálogo, la revisa contra alergias, dieta y exclusiones y la guarda **privada** (`rcp_ai_…`, máximo 2 por mensaje). Si no pasa, el chef recomienda una que existe.
 - **Chef:** con `OPENROUTER_API_KEY` responde con IA texto libre, chips y dudas dentro de una receta, con los últimos 8 mensajes; prueba los modelos en orden y si todos fallan usa reglas. `GET /health` dice qué motor corre (`chef: openrouter | rules`).
 
 ## Event driven
@@ -204,7 +206,7 @@ src/
 | --- | --- | --- |
 | `Storage` | `LocalStorage`: URLs firmadas con HMAC hacia `/api/v1/storage/upload` | S3/GCS con URL prefirmada (misma interfaz) |
 | `ReceiptParser` | `MockReceiptParser` (factura de ejemplo) · `none` | Servicio de OCR o modelo de visión |
-| `ChefEngine` | `LlmChefEngine` (OpenRouter, modelos gratis) si hay `OPENROUTER_API_KEY`: responde el texto libre eligiendo solo entre recetas reales y compatibles; si falla, cae a `RuleBasedChefEngine`, que cubre los flujos del diseño (ideas, otra idea, ¿qué compro?, más proteína, airfryer, congelar) | Ajustar prompt y modelos (`OPENROUTER_MODEL`) |
+| `ChefEngine` | `LlmChefEngine` (OpenRouter, modelos gratis) si hay `OPENROUTER_API_KEY`: inventa recetas propias y responde dudas; si falla, cae a `RuleBasedChefEngine`, que cubre los flujos del diseño (ideas, otra idea, ¿qué compro?, más proteína, airfryer, congelar) | Ajustar prompt y modelos (`OPENROUTER_MODEL`) |
 | `Moderation` | Reglas básicas de spam | Servicio de moderación de texto e imágenes |
 | `OAuthVerifier` | Verifica idTokens de Google y Apple con sus JWKS | Configura `GOOGLE_CLIENT_IDS` y `APPLE_CLIENT_IDS` |
 | `Notifier` | Registra en el log (respeta Ajustes › Notificaciones) | FCM / APNs |

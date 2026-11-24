@@ -8,3 +8,6 @@ export * from './recommendations.service.js';
 export * from './http/recipes.routes.js';
 export * from './library.repository.js';
 export * from './library.service.js';
+export * from './recipe-photos.service.js';
+export * from './generated.service.js';
+export { isDishFile } from './dish-photos.js';

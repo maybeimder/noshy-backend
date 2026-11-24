@@ -4,12 +4,9 @@ import type { RawRecipeDoc } from '../../infrastructure/database/mongo/collectio
 import type { CatalogService } from '../catalog/catalog.service.js';
 import type { RecipesRepository } from './recipes.repository.js';
 import type { RecipeLibraryRepository } from './library.repository.js';
+import type { RecipePhotosService } from './recipe-photos.service.js';
 import { estimateRaw, type RawEstimate } from './raw-estimator.js';
 import { rawIngredientId, rawIngredientRow } from './raw-foods.js';
-
-/** Opciones por pedido al chef. */
-export const MAX_OPTIONS = 2;
-const SEARCH_POOL = 300;
 
 /** Recetas del recetario que cada persona debería poder ver en «Explorar». */
 export const EXPLORE_TARGET = 60;
@@ -24,7 +21,7 @@ const FIRST_WAIT_MS = 4_000;
 /** Dice si algo con esos alérgenos y banderas choca con la persona. */
 export type Avoid = (f: { allergens: string[]; dietFlags: string[] }) => boolean;
 
-/** Prefijo propio: solo salen en «Explorar» o si el chef las busca, no en Inicio ni en el menú (están en inglés). */
+/** Prefijo propio: solo salen en «Explorar», no en Inicio ni en el menú (están en inglés). */
 export const RAW_PREFIX = 'rcp_raw_';
 export const libraryRecipeId = (sourceId: number) => `${RAW_PREFIX}${sourceId}`;
 
@@ -46,19 +43,9 @@ export class RecipeLibraryService {
     private readonly library: RecipeLibraryRepository,
     private readonly repo: RecipesRepository,
     private readonly catalog: CatalogService,
+    private readonly photos: RecipePhotosService,
     private readonly log: FastifyBaseLogger,
   ) {}
-
-  /** Hasta dos opciones distintas con esos ingredientes (en inglés) que no choquen con la persona. Devuelve ids de recetas. */
-  async forRequest(opts: { ingredients: string[]; avoid: Avoid; excludeRecipeIds: string[] }): Promise<string[]> {
-    const terms = [...new Set(opts.ingredients.map((t) => t.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/ +/g, ' ').trim()).filter((t) => t.length > 1))].slice(0, 5);
-    if (terms.length === 0) return [];
-    const docs = await this.library.search(terms, SEARCH_POOL);
-    const picked = await this.estimate(docs, opts.avoid, new Set(opts.excludeRecipeIds), new Set(), MAX_OPTIONS);
-    await this.save(picked);
-    this.log.info({ terms, found: docs.length, picked: picked.length }, 'recetario: pedido del chef');
-    return picked.map((e) => e.id);
-  }
 
   /**
    * Al abrir «Explorar»: si la persona ve menos de `EXPLORE_TARGET`, trae más que SÍ pueda comer. Espera un momento para
@@ -81,7 +68,7 @@ export class RecipeLibraryService {
       let room = LIBRARY_MAX - titles.size;
       for (let round = 0; round < MAX_ROUNDS && added < wanted && room > 0; round++) {
         const docs = await this.library.sample(SAMPLE);
-        const fresh = await this.estimate(docs, avoid, new Set(), titles, Math.min(wanted - added, room));
+        const fresh = await this.estimate(docs, avoid, titles, Math.min(wanted - added, room));
         const n = await this.save(fresh);
         added += n;
         room -= n;
@@ -94,7 +81,7 @@ export class RecipeLibraryService {
     return added;
   }
 
-  private async estimate(docs: RawRecipeDoc[], avoid: Avoid, exclude: Set<string>, titles: Set<string>, limit: number): Promise<Entry[]> {
+  private async estimate(docs: RawRecipeDoc[], avoid: Avoid, titles: Set<string>, limit: number): Promise<Entry[]> {
     const out: Entry[] = [];
     for (const [n, d] of docs.entries()) {
       if (out.length >= limit) break;
@@ -102,7 +89,7 @@ export class RecipeLibraryService {
       if (n % 20 === 19) await new Promise((r) => setImmediate(r));
       const id = libraryRecipeId(d._id);
       const title = normTitle(d.title ?? '');
-      if (exclude.has(id) || titles.has(title)) continue;
+      if (titles.has(title)) continue;
       const estimate = estimateRaw(d);
       if (!estimate || avoid(factsOf(estimate))) continue;
       titles.add(title);
@@ -125,6 +112,7 @@ export class RecipeLibraryService {
           status: 'published',
           title: e.title,
           slug: id,
+          imageUrl: this.photos.url({ id, title: e.title }, e.ingredients.map((i) => rawIngredientId(i.food.key, i.label))),
           mealSlots: e.mealSlots,
           timeMin: e.minutes,
           timeMax: e.minutes,

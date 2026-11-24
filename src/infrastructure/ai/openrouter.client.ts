@@ -19,7 +19,7 @@ export class OpenRouterClient {
     readonly models: string[],
     private readonly log: FastifyBaseLogger,
     /** Por modelo. */
-    private readonly timeoutMs = 25_000,
+    private readonly timeoutMs = 45_000,
     private readonly fetchFn: typeof fetch = fetch,
     /** Entre todos los modelos: alguien está esperando. */
     private readonly deadlineMs = timeoutMs * 2,

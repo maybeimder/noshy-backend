@@ -16,6 +16,7 @@ const card = (id: string) => ({
   isAdapted: false,
   isSaved: false,
   nutritionEstimated: false,
+  imageIsReference: false,
 });
 const tools: ChefTools = {
   candidates: async () => [card('rcp_A'), card('rcp_B')],
@@ -26,7 +27,8 @@ const tools: ChefTools = {
   recipe: async () => null,
   proposeAdaptation: async () => 'prp_1',
   hasEquipment: () => false,
-  newRecipes: null,
+  createRecipes: async () => [],
+  pantry: async () => ['Arroz', 'Pollo'],
   recipeBrief: async () => 'Ajiaco · 4 porciones\nPor porción: 600 kcal',
 };
 const turn = (text: string): ChefTurn => ({
@@ -96,45 +98,53 @@ describe('LlmChefEngine', () => {
     await collect(new LlmChefEngine(new OpenRouterClient('k', ['m'], log, 1000, f), new RuleBasedChefEngine(), log).reply(t, tools));
     expect(calls[0]!.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
     expect(calls[0]!.messages[0]!.content).toContain('Sin lactosa');
+    expect(calls[0]!.messages[0]!.content).toContain('En su despensa: Arroz, Pollo');
     expect(calls[0]!.messages.at(-1)!.content).toBe('¿y con menos grasa?');
   });
 
-  it('dentro de una receta responde el modelo con sus datos; airfryer y «otra idea» siguen en reglas', async () => {
+  it('dentro de una receta responde el modelo con sus datos; airfryer y «¿qué compro?» siguen en reglas', async () => {
     const { calls, f } = recording({ m: { content: '{"reply":"Sí, con leche de coco."}' } });
     const engine = new LlmChefEngine(new OpenRouterClient('k', ['m'], log, 1000, f), new RuleBasedChefEngine(), log);
     const inRecipe = { ...turn('¿puedo reemplazar la leche?'), thread: { ...turn('').thread, context: { type: 'recipe' as const, recipeId: 'rcp_A', title: 'Ajiaco' } } };
     const chunks = await collect(engine.reply(inRecipe, tools));
     expect(textOf(chunks)).toBe('Sí, con leche de coco.');
     expect(calls[0]!.messages[0]!.content).toContain('600 kcal');
-    await collect(engine.reply({ ...turn(''), input: { kind: 'anotherIdea', recipeId: null } }, tools));
     await collect(engine.reply({ ...turn(''), input: { kind: 'suggestedPrompt', optionId: 'sp_whattobuy', label: '¿Qué compro?' } }, tools));
     await collect(engine.reply(turn('¿qué compro?'), tools));
     expect(calls).toHaveLength(1);
     await collect(engine.reply({ ...turn(''), input: { kind: 'suggestedPrompt', optionId: 'sp_moreprotein', label: 'Más proteína' } }, tools));
     await collect(engine.reply(turn('compré pollo, ¿qué hago?'), tools));
     expect(calls).toHaveLength(3);
+    await collect(engine.reply({ ...turn(''), input: { kind: 'anotherIdea', recipeId: null } }, tools));
+    expect(calls[3]!.messages.at(-1)!.content).toContain('otra idea');
   });
 
   const cardsOf = (chunks: ChefChunk[]) => chunks.flatMap((c) => (c.type === 'block' && c.block.type === 'recipeCard' ? [(c.block.recipe as { id: string }).id] : []));
   const engineWith = (content: string) => new LlmChefEngine(new OpenRouterClient('k', ['m'], log, 1000, fakeFetch(content)), new RuleBasedChefEngine(), log);
 
-  it('si nada encaja genera recetas con lo pedido: máximo dos opciones', async () => {
-    const asked: string[][] = [];
-    const t: ChefTools = { ...tools, newRecipes: async ({ ingredients }) => (asked.push(ingredients), [card('n1'), card('n2'), card('n3')]) };
-    const chunks = await collect(engineWith('{"reply":"Te las busco.","recipeIds":[],"newRecipe":["chickpea","spinach"]}').reply(turn('algo con garbanzos'), t));
-    expect(asked).toEqual([['chickpea', 'spinach']]);
+  it('inventa la receta y la entrega como tarjeta: máximo dos', async () => {
+    const got: unknown[][] = [];
+    const t: ChefTools = { ...tools, createRecipes: async (d) => (got.push(d), [card('n1'), card('n2'), card('n3')]) };
+    const chunks = await collect(engineWith('{"reply":"Te la armo.","recipeIds":[],"recipes":[{"title":"A"},{"title":"B"},{"title":"C"}]}').reply(turn('dame opciones'), t));
+    expect(got).toEqual([[{ title: 'A' }, { title: 'B' }]]);
     expect(cardsOf(chunks)).toEqual(['n1', 'n2']);
+    expect(chunks.find((c) => c.type === 'block' && c.block.type === 'recipeCard')).toMatchObject({ block: { recipe: { reason: { label: 'Creada para ti' } } } });
     expect(chunks.filter((c) => c.type === 'block' && c.block.type === 'feedbackPrompt').map((c) => (c as unknown as { block: { targetBlockId: string } }).block.targetBlockId)).toEqual(['b_card0', 'b_card1']);
+    await collect(engineWith('{"reply":"Va","recipe":{"title":"Sola"}}').reply(turn('idea'), t));
+    expect(got[1]).toEqual([{ title: 'Sola' }]);
   });
 
-  it('sin resultados o con error al generar lo dice; si hay candidatas no genera; sin biblioteca tampoco', async () => {
-    const fail: ChefTools = { ...tools, newRecipes: async () => Promise.reject(new Error('x')) };
-    expect(textOf(await collect(engineWith('{"reply":"Voy.","recipeIds":[],"newRecipe":["kale"]}').reply(turn('kale'), fail)))).toContain('No encontré');
+  it('si la receta no sirve o falla al guardarla, recomienda una que existe y lo dice', async () => {
+    for (const createRecipes of [async () => [], async () => Promise.reject(new Error('x'))]) {
+      const chunks = await collect(engineWith('{"reply":"Voy.","recipes":[{"title":"Rara"}]}').reply(turn('idea'), { ...tools, createRecipes }));
+      expect(textOf(chunks)).toContain('no me convenció');
+      expect(cardsOf(chunks)).toEqual(['rcp_RULES']);
+    }
     let called = 0;
-    const count: ChefTools = { ...tools, newRecipes: async () => (called++, []) };
-    expect(cardsOf(await collect(engineWith('{"reply":"Mira","recipeIds":["rcp_A","rcp_B","rcp_X"],"newRecipe":["kale"]}').reply(turn('idea'), count)))).toEqual(['rcp_A', 'rcp_B']);
+    const count: ChefTools = { ...tools, createRecipes: async () => (called++, []) };
+    expect(cardsOf(await collect(engineWith('{"reply":"Mira","recipeIds":["rcp_A","rcp_B","rcp_X"],"recipes":[{}]}').reply(turn('una de Noshy'), count)))).toEqual(['rcp_A', 'rcp_B']);
+    expect(cardsOf(await collect(engineWith('{"reply":"El arroz va 1 a 2.","recipes":[]}').reply(turn('¿cuánta agua?'), count)))).toEqual([]);
     expect(called).toBe(0);
-    expect(cardsOf(await collect(engineWith('{"reply":"Mira","recipeIds":[],"newRecipe":["kale"]}').reply(turn('idea'), tools)))).toEqual([]);
   });
 
   it('el plazo total corta aunque queden modelos', async () => {

@@ -37,7 +37,7 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 
 ## 3. Nuevo en el backend
 
-- Las tarjetas y el detalle de receta traen `nutritionEstimated: boolean`: `true` si los macros los estimó un modelo. Conviene mostrarlo («≈ 620 kcal»).
+- Las tarjetas y el detalle de receta traen `nutritionEstimated: boolean`: `true` si los macros son estimados. Conviene mostrarlo («≈ 620 kcal»).
 - Las recetas de la biblioteca no cruzan ingredientes con el catálogo: su `pantryMatch` suele ser `0/N`, mejor no mostrarlo cuando `nutritionEstimated` es `true`.
 
 ## 4. Mise en place y Explorar
@@ -59,3 +59,10 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 ## 7. Foto de los productos
 
 - `GET /catalog/ingredients/search` trae `imageUrl: string | null`. El front ya la muestra en el desplegable y, si no hay o no carga, pone el pictograma sobre el degradado de marca.
+
+## 8. Fotos de referencia y recetas del chef
+
+- **Fotos:** `recipes_raw` no trae fotos. Las recetas sin foto propia ahora traen en `imageUrl` la de un plato parecido (`/api/v1/dishes/*.webp`, banco propio CC0) y `imageIsReference: true`; el detalle ya muestra «Foto de referencia». Si no se reconoce el plato, `imageUrl` sigue en `null`. Lo que publica un usuario sin foto no se toca.
+- **Chef:** inventa su propia receta. El modelo la entrega en JSON, el backend la valida, revisa alergias y dieta, y llega como un bloque `recipeCard` normal (`reason.label: "Creada para ti"`, `id: "rcp_ai_…"`). Se abre con `GET /recipes/{id}`, y se puede guardar, cocinar y mandar a la lista.
+- Son **privadas**: otra persona recibe 404, así que el enlace de compartir no le sirve a nadie más. `author.type` es `chef`.
+- Puede tardar hasta 90 s en el peor caso (modelos gratis); el SSE manda latidos cada 10 s.

@@ -92,7 +92,8 @@ export class AuthoringService {
 
   private async ownDraft(userId: string, recipeId: string) {
     const r = await this.recipesRepo.byId(recipeId);
-    if (!r || r.authorId !== userId) throw Errors.notFound('Esa receta no existe.');
+    // Las que crea el chef también son de la persona, pero no se editan ni publican.
+    if (!r || r.authorId !== userId || r.authorType !== 'user') throw Errors.notFound('Esa receta no existe.');
     return r;
   }
 

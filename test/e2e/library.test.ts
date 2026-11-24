@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { client, drain, ONBOARDING_PAYLOAD, resetDatabases, testApp } from './helpers.js';
+import { LlmChefEngine, RuleBasedChefEngine } from '../../src/modules/chef/chef.providers.js';
+import { OpenRouterClient } from '../../src/infrastructure/ai/openrouter.client.js';
 import { RecipeLibraryRepository, RecipeLibraryService } from '../../src/modules/recipes/index.js';
 
 /** Recetario: recipes_raw en inglés con macros por tabla, y recomendaciones que aprenden del 👎. */
@@ -9,7 +11,7 @@ describe('biblioteca de recetas', () => {
   const users: Record<string, ReturnType<typeof client>> = {};
   const restrictions = (dietStyle: string, allergyIds: string[] = []) => ({ dietStyle, allergyIds, careIds: [], customExclusions: [] });
   const raw = (_id: number, title: string, ingredients: string[], ner: string[] = [], directions = ['Mix all.', 'Cook 20 minutes.']) => ({ _id, title, ingredients, ner, nIngredients: ingredients.length, directions });
-  const serviceOn = (c: FastifyInstance['container']) => new RecipeLibraryService(c.pg.db, new RecipeLibraryRepository(c.mongo.rawRecipes), c.repos.recipes, c.services.catalog, c.log);
+  const serviceOn = (c: FastifyInstance['container']) => new RecipeLibraryService(c.pg.db, new RecipeLibraryRepository(c.mongo.rawRecipes), c.repos.recipes, c.services.catalog, c.services.recipePhotos, c.log);
 
   beforeAll(async () => {
     await resetDatabases();
@@ -63,16 +65,97 @@ describe('biblioteca de recetas', () => {
     expect((await users.omni!.get('/me/home')).body.data.ideas.items.some((x: any) => x.id.startsWith('rcp_raw_'))).toBe(false);
   });
 
-  it('bajo pedido del chef: máximo dos distintas y sin lo que choca', async () => {
-    const svc = serviceOn(app.container);
-    const noDairy = { ingredients: ['Chickpea', '$where', 'unobtainium'], avoid: (f: { allergens: string[] }) => f.allergens.includes('lactose'), excludeRecipeIds: [] as string[] };
-    const first = await svc.forRequest(noDairy);
-    expect(first).toEqual(['rcp_raw_1', 'rcp_raw_5']);
-    expect(await svc.forRequest(noDairy)).toEqual(first);
-    expect(await svc.forRequest({ ...noDairy, excludeRecipeIds: first })).toEqual(['rcp_raw_4']);
-    expect(await svc.forRequest({ ...noDairy, ingredients: ['dragonfruit'] })).toEqual([]);
-    const me = (await app.container.repos.users.findByEmail('omni@correo.co'))!;
-    expect(await app.container.services.recipes.compatible(me.id, first)).toHaveLength(2);
+  it('traen foto de referencia que sí se puede descargar; las que ya estaban la reciben al arrancar', async () => {
+    const { container: c } = app;
+    const d = (await users.omni!.get('/recipes/rcp_raw_1')).body.data;
+    expect(d).toMatchObject({ imageIsReference: true, imageUrl: expect.stringMatching(/\/api\/v1\/dishes\/[a-z-]+-\d\.webp$/) });
+    const img = await app.inject({ method: 'GET', url: new URL(d.imageUrl).pathname });
+    expect([img.statusCode, img.headers['content-type'], img.headers['cross-origin-resource-policy']]).toEqual([200, 'image/webp', 'cross-origin']);
+    for (const bad of ['nope-1.webp', 'cookies-9.webp', '..%2f..%2fpackage.json', 'CREDITS.md', 'constructor-1.webp']) expect((await app.inject({ method: 'GET', url: `/api/v1/dishes/${bad}` })).statusCode, bad).toBe(404);
+    await c.pg.pool.query("update recipes set image_url = null where id = 'rcp_raw_5'");
+    await c.services.recipePhotos.backfill();
+    expect((await c.repos.recipes.byId('rcp_raw_5'))!.imageUrl).toContain('/dishes/salad-');
+    expect((await c.pg.pool.query("select count(*)::int n from recipes where image_url like 'https://cdn.noshy.app/%'")).rows[0].n).toBe(0);
+    expect(await c.services.recipePhotos.backfill()).toBe(0);
+  });
+
+  it('la receta que inventa el chef se guarda, se abre, se cocina y solo la ve su dueño', async () => {
+    const { container: c } = app;
+    const me = (await c.repos.users.findByEmail('omni@correo.co'))!;
+    const vegan = (await c.repos.users.findByEmail('vegan@correo.co'))!;
+    const make = async (userId: string, ...drafts: unknown[]) => c.services.generatedRecipes.create(userId, await c.services.preferences.getOrThrow(userId), [], drafts);
+    const draft = {
+      title: 'Pollo al curry con garbanzos', dish: 'chicken curry', servings: '2', minutes: 25.4, difficulty: 'fácil', mealSlots: ['dinner', 'cena'],
+      ingredients: [
+        { name: 'Pechuga de pollo', value: 300, unit: 'gramos', grams: 300 },
+        { name: 'garbanzos cocidos', value: 1, unit: 'taza', grams: 160 },
+        { name: 'curry en polvo', value: 1, unit: 'cda', grams: 6 },
+        { name: 'sal', value: 0, unit: 'al gusto' },
+      ],
+      steps: [{ text: 'Dora el pollo con el curry.', minutes: 10, ingredients: ['pechuga de pollo', 'curry en polvo', 'sal'] }, { text: 'Agrega los garbanzos y cocina.', minutes: 10, ingredients: ['garbanzos cocidos'] }],
+      perServing: { kcal: 430, proteinG: 48, carbsG: 22, fatG: 14 },
+    };
+    const [id] = await make(me.id, draft, { title: 'Sin nada' }, draft);
+    expect(id).toMatch(/^rcp_ai_/);
+    const api = users.omni!;
+    const d = (await api.get(`/recipes/${id}`)).body.data;
+    expect(d).toMatchObject({ title: draft.title, author: { type: 'chef' }, servings: { value: 2 }, totalTimeMinutes: { max: 25 }, stepsCount: 2, difficulty: { id: 'easy' }, compatibility: { ok: true } });
+    expect(d.imageUrl).toContain('/dishes/');
+    expect(d.nutritionPerServing.kcal).toBeGreaterThan(200);
+    expect(d.steps.map((s: any) => [s.timerSeconds, s.ingredients.length])).toEqual([[600, 3], [600, 1]]);
+    expect(d.ingredients[1]).toMatchObject({ quantity: { value: 1, unit: 'cup' } });
+    // Privada: ni otra persona, ni Explorar, ni edición o publicación.
+    expect((await users.vegan!.get(`/recipes/${id}`)).status).toBe(404);
+    expect((await api.patch(`/me/recipes/${id}`, { title: 'x' })).status).toBe(404);
+    expect((await api.post(`/me/recipes/${id}/publish`)).status).toBe(404);
+    expect((await ideas('omni')).some((r) => r.id === id)).toBe(false);
+    expect((await api.put(`/me/saved-recipes/${id}`)).status).toBeLessThan(300);
+    expect((await api.post('/me/shopping-lists/current/recipes', { recipeId: id })).status).toBeLessThan(300);
+    const cook = await api.post('/me/cooking-sessions', { recipeId: id, servings: 2 });
+    expect(cook.status, JSON.stringify(cook.body)).toBe(201);
+    await api.post(`/me/cooking-sessions/${cook.body.data.id}/abandon`, { atStepIndex: 0, reason: 'later' });
+    // No se confía en el modelo: se revisan ingredientes, pasos y calorías.
+    expect(await make(vegan.id, draft)).toEqual([]);
+    const veg = { ...draft, title: 'Garbanzos guisados', dish: 'stew', ingredients: draft.ingredients.slice(1), steps: [{ text: 'Cocina los garbanzos.' }] };
+    expect(await make(vegan.id, veg)).toHaveLength(1);
+    expect(await make(vegan.id, { ...veg, steps: [{ text: 'Cocina los garbanzos con mantequilla.' }] })).toEqual([]);
+    expect(await make(vegan.id, { ...veg, title: 'Garbanzos con tocineta' })).toEqual([]);
+    expect(await make(me.id, { ...veg, perServing: { kcal: 9000, proteinG: 900, carbsG: 900, fatG: 900 } })).toEqual([]);
+    expect(await make(me.id, { ...veg, perServing: null })).toEqual([]);
+  });
+
+  it('en el chat: el JSON del modelo llega como tarjeta que se puede abrir, y «otra idea» inventa otra', async () => {
+    const api = users.vegan!;
+    const recipe = (title: string, extra: string) => ({
+      title, dish: 'stew', servings: 2, minutes: 20, difficulty: 'easy', mealSlots: ['lunch'],
+      ingredients: [{ name: 'Garbanzos', value: 200, unit: 'g', grams: 200 }, { name: extra, value: 100, unit: 'g', grams: 100 }],
+      steps: [{ text: 'Cocina todo.', minutes: 15, ingredients: ['Garbanzos', extra] }], perServing: { kcal: 300, proteinG: 15, carbsG: 40, fatG: 8 },
+    });
+    const replies = [recipe('Garbanzos con espinaca', 'Espinaca'), recipe('Garbanzos con ahuyama', 'Ahuyama'), recipe('Garbanzos con tocineta', 'Tocineta')];
+    const asked: string[] = [];
+    const fake = (async (_u: string, init: RequestInit) => {
+      asked.push(String(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reply: 'Te armé esta.', recipeIds: [], recipes: [replies.shift()] }) } }] }));
+    }) as unknown as typeof fetch;
+    const chef = app.container.services.chef as unknown as { engine: unknown };
+    const before = chef.engine;
+    chef.engine = new LlmChefEngine(new OpenRouterClient('k', ['m'], app.container.log, 1000, fake), new RuleBasedChefEngine(), app.container.log);
+    try {
+      const send = async (n: number, input: unknown) => (await api.post('/me/chef/threads/main/messages', { clientMessageId: `aitest0${n}`, input })).body.data.chefMessage;
+      const cardOf = (m: any) => m.blocks.find((b: any) => b.type === 'recipeCard');
+      const m1 = await send(1, { type: 'text', text: 'algo con garbanzos', via: 'keyboard' });
+      expect(cardOf(m1).recipe).toMatchObject({ id: expect.stringMatching(/^rcp_ai_/), title: 'Garbanzos con espinaca', reason: { label: 'Creada para ti' }, imageIsReference: true, isSaved: false });
+      expect((await api.get(`/recipes/${cardOf(m1).recipe.id}`)).body.data.steps[0].ingredients).toHaveLength(2);
+      const m2 = await send(2, { type: 'action', action: { type: 'anotherIdea', messageId: m1.id, blockId: cardOf(m1).id } });
+      expect(cardOf(m2).recipe.title).toBe('Garbanzos con ahuyama');
+      expect(asked[1]).toContain('[Receta: Garbanzos con espinaca]');
+      // Trae carne y es vegana: no se muestra; sale una que sí existe y puede comer.
+      const m3 = await send(3, { type: 'text', text: 'otra receta', via: 'keyboard' });
+      expect(cardOf(m3).recipe.id).not.toMatch(/^rcp_ai_/);
+      expect(JSON.stringify(m3)).not.toContain('tocineta');
+    } finally {
+      chef.engine = before;
+    }
   });
 
   it('topes: lleno no busca; si no encuentra suficientes descansa y reintenta después; Mongo caído no rompe', async () => {
@@ -81,7 +164,7 @@ describe('biblioteca de recetas', () => {
     const t = Date.now();
     expect(await svc.fillForExplore(0, () => true, t)).toBe('paused');
     expect(await svc.fillForExplore(0, () => true, t + 1000)).toBe('paused');
-    const dead = new RecipeLibraryService(app.container.pg.db, { sample: async () => Promise.reject(new Error('mongo')), search: async () => [] } as never, app.container.repos.recipes, app.container.services.catalog, app.container.log);
+    const dead = new RecipeLibraryService(app.container.pg.db, { sample: async () => Promise.reject(new Error('mongo')) } as never, app.container.repos.recipes, app.container.services.catalog, app.container.services.recipePhotos, app.container.log);
     expect(await dead.fillForExplore(0, () => false)).toBe('paused');
   });
 
@@ -124,15 +207,19 @@ describe('biblioteca de recetas', () => {
     expect(row.recipe.imageUrl).toBe(row.photoUrl);
     expect((await app.inject({ method: 'GET', url: new URL(row.photoUrl).pathname })).statusCode).toBe(200);
     expect((await api.get('/me/home')).body.data.mostCooked[0].imageUrl).toBe(row.photoUrl);
-    expect((await api.get('/recipes/rcp_raw_1')).body.data.imageUrl).toBeNull();
+    expect((await api.get('/recipes/rcp_raw_1')).body.data.imageUrl).not.toBe(row.photoUrl);
     expect(await find('vegan')).toBeUndefined();
   });
 
   it('la API ve lo que importó otro proceso', async () => {
     const other = await testApp();
     try {
-      await app.container.mongo.rawRecipes.insertOne(raw(900, 'Lentil Soup', ['1 c. lentils', '1 leek', '3 c. water'], ['beluga lentil']));
-      expect(await serviceOn(other.container).forRequest({ ingredients: ['beluga lentil'], avoid: () => false, excludeRecipeIds: [] })).toEqual(['rcp_raw_900']);
+      // Otro proceso la trae; este aún no conoce sus ingredientes.
+      for (let i = 0; i < 20 && !(await other.container.repos.recipes.byId('rcp_raw_900')); i++) {
+        const svc = new RecipeLibraryService(other.container.pg.db, { sample: async () => [raw(900, 'Lentil Soup', ['1 c. lentils', '1 leek', '3 c. water'])] } as never, other.container.repos.recipes, other.container.services.catalog, other.container.services.recipePhotos, other.container.log);
+        await svc.fillForExplore(0, () => false);
+      }
+      expect(await other.container.repos.recipes.byId('rcp_raw_900')).not.toBeNull();
       const seen: string[] = [];
       for (let cursor = ''; ; ) {
         const page = (await users.vegan!.get(`/me/recommendations?limit=20&source=library${cursor}`)).body;

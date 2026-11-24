@@ -16,6 +16,7 @@ import { heatLabel, type Quantity, type Unit } from '../../core/domain/quantity.
 import { DIFFICULTIES, labelOf, type GoalId } from '../../core/domain/catalog.js';
 import type { CookingStepSnapshot } from '../cooking/cooking.snapshots.js';
 import type { StepTemplate } from '../../infrastructure/database/postgres/types.js';
+import { isDishPhoto } from './dish-photos.js';
 import { Errors } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
 
@@ -59,6 +60,8 @@ export type RecipeCard = {
   isSaved: boolean;
   /** Macros estimados por un modelo, no sumados desde el catálogo. */
   nutritionEstimated: boolean;
+  /** La foto es de un plato parecido, no de esta receta. */
+  imageIsReference: boolean;
 };
 
 const hashOf = (x: unknown) => createHash('sha1').update(JSON.stringify(x)).digest('hex').slice(0, 16);
@@ -163,18 +166,13 @@ export class RecipesService {
       isAdapted: e.evaluation.substitutions.length > 0,
       isSaved: saved,
       nutritionEstimated: r.nutritionStatus === 'estimated',
+      imageIsReference: isDishPhoto(r.imageUrl),
     };
   }
 
   /** Para descartar, antes de gastar nada, lo que choca con la persona. */
   avoidFor(prefs: PreferencesRow) {
     return (f: { allergens: string[]; dietFlags: string[] }) => this.preferences.conflictsForFacts(prefs, { id: '', label: '', ...f }).length > 0;
-  }
-
-  /** Las que la persona puede comer, tal cual o adaptadas. */
-  async compatible(userId: string, recipeIds: string[]): Promise<RecipeRow[]> {
-    const evaluated = await this.evaluateMany(await this.repo.byIds(recipeIds), await this.context(userId));
-    return evaluated.filter((e) => e.evaluation.compatibility.ok).map((e) => e.recipe);
   }
 
   /** Tarjetas en el mismo orden de `recipeIds`. */
