@@ -100,6 +100,7 @@ export class AuthoringService {
     const r = await this.ownDraft(userId, recipeId);
     if (r.status === 'published' || r.status === 'inReview') throw Errors.conflict('ALREADY_PUBLISHED', 'La receta ya se publicó y no se puede editar.');
     if (ifMatch && ifMatch !== r.updatedAt.toISOString()) throw Errors.conflict('VERSION_CONFLICT', 'La receta cambió en otro dispositivo.', { updatedAt: r.updatedAt.toISOString() });
+    if (patch.ingredients) await this.catalog.ensure(patch.ingredients.map((i) => i.ingredientId));
     const errs: FieldError[] = [];
     patch.ingredients?.forEach((i, idx) => {
       const ing = this.catalog.ingredient(i.ingredientId);

@@ -97,6 +97,7 @@ export class PantryService {
   }
 
   async add(userId: string, tz: string, input: { ingredientId: string; productId?: string; quantity?: { value: number; unit: Unit }; storage?: Storage }) {
+    await this.catalog.ensure([input.ingredientId]);
     const ing = this.catalog.ingredient(input.ingredientId);
     if (!ing) throw Errors.validation([field('ingredientId', 'INVALID_OPTION', 'Ingrediente desconocido.')]);
     if (input.productId && this.catalog.product(input.productId)?.ingredientId !== input.ingredientId)

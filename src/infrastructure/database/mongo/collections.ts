@@ -6,6 +6,7 @@ import type { Db, Collection } from 'mongodb';
  * - cooking_events: telemetría de modo cocina (muchos eventos por sesión).
  * - user_signals / insights: aprendizaje del chef.
  * - receipt_scans: salida cruda del OCR de facturas.
+ * - products_slim: catálogo de alimentos (USDA + Open Food Facts). Lo carga otro proceso; aquí es de SOLO LECTURA.
  */
 
 export type ChefContext = { type: 'main' } | { type: 'recipe'; recipeId: string; title: string };
@@ -94,6 +95,29 @@ export type InsightDoc = {
 };
 
 export type ReceiptScanDoc = { _id: string; userId: string; parser: string; raw: unknown; createdAt: Date };
+
+/** Alimento de `products_slim`. Los datos son de la comunidad: casi todo puede faltar. */
+export type FoodDoc = {
+  _id: string; // «usda:1», «7702…»
+  name: string;
+  displayName?: string;
+  brand?: string; // «generic» = sin marca
+  state?: 'raw' | 'cooked' | 'canned' | 'plain';
+  /** Nombre y marca normalizados (minúsculas, sin tildes). */
+  search: string;
+  suspect?: boolean;
+  quantity?: string | null;
+  per100g?: { kcal?: number | null; protein_g?: number | null; carbs_g?: number | null; fat_g?: number | null; fiber_g?: number | null };
+  servings?: { label: string; grams: number }[];
+  nova?: number | null;
+  allergens?: string[];
+  ingredients?: string | null;
+  dietTags?: string[];
+  labels?: string[];
+  foodGroups?: string[];
+  popularity?: number;
+  completeness?: number;
+};
 
 export type MongoCollections = {
   chefThreads: Collection<ChefThreadDoc>;

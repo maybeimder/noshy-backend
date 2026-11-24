@@ -2,5 +2,7 @@
 export * from './catalog.model.js';
 export * from './catalog.repository.js';
 export * from './catalog.service.js';
+export * from './food-ingredient.js';
+export * from './food.repository.js';
 export * from './ingredient-search.service.js';
 export * from './http/catalog.routes.js';

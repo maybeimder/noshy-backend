@@ -22,6 +22,9 @@ const EnvSchema = z.object({
   /** Opcional: por defecto, la base que viene en MONGO_URL (`…/food` → `food`). */
   MONGO_DB: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
 
+  /** Base del catálogo de alimentos (`products_slim`), de solo lectura. */
+  MONGO_FOOD_DB: z.preprocess((v) => (v === '' ? undefined : v), z.string().default('food')),
+
   JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
   ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().default(30),

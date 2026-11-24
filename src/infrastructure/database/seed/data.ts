@@ -27,19 +27,8 @@ export const DISHES = [
   { id: 'curry', label: 'Curry', cuisineId: 'indian', flavorTags: ['spicy', 'creamy'] },
 ].map((d, i) => ({ ...d, imageUrl: `${CDN}/dishes/${d.id}.webp`, sort: i }));
 
-export { CUISINES } from '../../../core/domain/catalog.js';
-import { CUISINES } from '../../../core/domain/catalog.js';
-
-export const CATEGORY_LABELS: Record<string, string> = {
-  produce: 'Frutas y verduras',
-  protein: 'Carnes y huevos',
-  seafood: 'Pescados y mariscos',
-  dairy: 'Lácteos',
-  staples: 'Despensa',
-  spices: 'Especias',
-  bakery: 'Panadería',
-  drinks: 'Bebidas',
-};
+export { CATEGORY_LABELS, CUISINES } from '../../../core/domain/catalog.js';
+import { CATEGORY_LABELS, CUISINES } from '../../../core/domain/catalog.js';
 
 type IngSeed = {
   id: string;

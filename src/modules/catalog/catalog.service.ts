@@ -1,4 +1,7 @@
 import type { CatalogRepository, DishRow, IngredientRow, ProductRow, StoreRow, SubstituteRow } from './catalog.repository.js';
+import type { FoodRepository } from './food.repository.js';
+import { foodIdOf, ingredientFromFood, isFoodIngredientId } from './food-ingredient.js';
+import { AppError } from '../../core/shared/errors.js';
 import { quantity, toGrams, type Quantity, type Unit } from '../../core/domain/quantity.js';
 import type { IngredientFacts, SubstituteRule } from '../../core/domain/restrictions.js';
 import type { IngredientNutrition } from '../../core/domain/nutrition.js';
@@ -34,7 +37,10 @@ export class CatalogService {
   private snap: Snapshot | null = null;
   private loading: Promise<Snapshot> | null = null;
 
-  constructor(private readonly repo: CatalogRepository) {}
+  constructor(
+    private readonly repo: CatalogRepository,
+    private readonly foods: FoodRepository,
+  ) {}
 
   async ready(): Promise<this> {
     if (!this.snap || Date.now() - this.snap.loadedAt > TTL_MS) await this.reload();
@@ -64,6 +70,40 @@ export class CatalogService {
     } finally {
       this.loading = null;
     }
+  }
+
+  /**
+   * Deja listos los ingredientes antes de guardarlos. Los `food_*` (recomendados desde Mongo) que nadie ha usado
+   * se copian a Postgres aquí: despensa, lista y recetas los referencian por llave foránea.
+   * Los desconocidos se ignoran: cada servicio los valida como siempre.
+   */
+  async ensure(ids: string[]): Promise<void> {
+    const missing = [...new Set(ids)].filter((id) => isFoodIngredientId(id) && !this.hasIngredient(id));
+    if (missing.length === 0) return;
+    const stored = await this.repo.ingredientsByIds(missing);
+    const toImport = missing.filter((id) => !stored.some((i) => i.id === id));
+    if (toImport.length) {
+      const docs = await this.foods.byIds(toImport.map(foodIdOf)).catch((cause: unknown) => {
+        throw Object.assign(new AppError(503, 'FOOD_CATALOG_UNAVAILABLE', 'El catálogo de alimentos no responde. Intenta de nuevo.'), { cause });
+      });
+      if (docs.length) {
+        const rows = docs.map(ingredientFromFood);
+        await this.repo.insertIngredients(rows);
+        stored.push(...rows);
+      }
+    }
+    // Una recarga en curso pudo leer antes del insert: se espera para no perder los nuevos.
+    if (this.loading) await this.loading;
+    for (const i of stored) {
+      if (this.s.ingById.has(i.id)) continue;
+      this.s.ingById.set(i.id, i);
+      this.s.ingredients.push(i);
+    }
+  }
+
+  /** Recarga si otro proceso agregó ingredientes (la API los copia de Mongo; el worker tiene su propia memoria). */
+  async sync(): Promise<void> {
+    if ((await this.repo.ingredientCount()) !== this.s.ingredients.length) await this.reload();
   }
 
   private get s(): Snapshot {
@@ -115,10 +155,22 @@ export class CatalogService {
     return this.s.ingById.get(id)?.isBasic ?? false;
   }
 
+  /** Todas las palabras (raíces normalizadas) al inicio de alguna palabra del nombre; primero las que lo encabezan. */
+  matching(stems: string[]): IngredientRow[] {
+    const starts = (i: IngredientRow) => i.searchText.startsWith(stems[0]!);
+    return this.s.ingredients
+      .filter((i) => {
+        const words = i.searchText.split(/[^a-z0-9]+/);
+        return stems.every((s) => words.some((w) => w.startsWith(s)));
+      })
+      .sort((a, b) => Number(!starts(a)) - Number(!starts(b)) || a.label.localeCompare(b.label));
+  }
+
+  /** Solo ingredientes base: reconoce texto libre (exclusiones, facturas, «comí afuera») sin ruido de marcas. */
   search(q: string, limit: number) {
     const needle = q.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
     return this.s.ingredients
-      .filter((i) => i.searchText.includes(needle))
+      .filter((i) => !isFoodIngredientId(i.id) && i.searchText.includes(needle))
       .sort((a, b) => Number(!a.searchText.startsWith(needle)) - Number(!b.searchText.startsWith(needle)) || a.label.localeCompare(b.label))
       .slice(0, limit);
   }

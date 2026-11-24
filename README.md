@@ -119,10 +119,15 @@ src/
 | stores, dishes, ingredients, ingredient_substitutes, products, product_prices | user_signals, insights (aprendizaje del chef) |
 | recipes, recipe_ingredients, recipe_adaptations, adaptation_proposals | |
 | saved_recipes, liked_recipes, comments, follows | receipt_scans (salida cruda del OCR) |
+| | products_slim (catálogo de alimentos, **solo lectura**) |
 | pantry_items, shopping_lists, shopping_list_items, shopping_list_recipes | |
 | meal_logs, menus, menu_entries, cooking_sessions | |
 | receipts, receipt_items, media, nudges | |
 | idempotency_keys, **event_store**, **outbox**, **processed_events** | |
+
+### Buscador de ingredientes
+
+`GET /catalog/ingredients/search` (despensa, lista de compras, crear receta) recomienda desde `products_slim` en Mongo (base `MONGO_FOOD_DB`, por defecto `food`; el usuario de `MONGO_URL` necesita rol `read` sobre ella), ordenado por relevancia (`modules/catalog/food-ranking.ts`). Los ingredientes base que coinciden van primero, porque son los que usan las recetas. Los alimentos de Mongo llegan con id `food_<_id>`; al agregarlos, `CatalogService.ensure` los copia a `ingredients` en Postgres. Si Mongo no responde en 2,5 s, el buscador sigue con lo que hay en Postgres.
 
 ## Event driven
 

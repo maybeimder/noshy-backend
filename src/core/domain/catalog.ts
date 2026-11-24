@@ -114,3 +114,14 @@ export const CUISINES: Record<string, string> = {
 
 export const labelOf = <T extends { id: string; label: string }>(list: readonly T[], id: string): string =>
   list.find((x) => x.id === id)?.label ?? id;
+
+export const CATEGORY_LABELS: Record<string, string> = {
+  produce: 'Frutas y verduras',
+  protein: 'Carnes y huevos',
+  seafood: 'Pescados y mariscos',
+  dairy: 'Lácteos',
+  staples: 'Despensa',
+  spices: 'Especias',
+  bakery: 'Panadería',
+  drinks: 'Bebidas',
+};

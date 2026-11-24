@@ -20,7 +20,7 @@ import {
   type GoalId,
 } from '../../core/domain/catalog.js';
 import { computeTargets, isValidKcalTarget, macrosForKcal, type Biometrics } from '../../core/domain/nutrition.js';
-import type { UserRestrictions } from '../../core/domain/restrictions.js';
+import type { IngredientFacts, UserRestrictions } from '../../core/domain/restrictions.js';
 import { conflictsOf } from '../../core/domain/restrictions.js';
 import type {
   Labeled,
@@ -312,8 +312,12 @@ export class PreferencesService {
 
   /** Revisa si un ingrediente choca con este usuario (para chips de conflicto en búsquedas). */
   conflictsFor(p: PreferencesRow | null, ingredientId: string) {
-    if (!p) return [];
-    return conflictsOf(this.catalog.facts(ingredientId), this.restrictionsOf(p));
+    return this.conflictsForFacts(p, this.catalog.facts(ingredientId));
+  }
+
+  /** Igual, con los datos a la mano: sirve para alimentos que aún no están en el catálogo local. */
+  conflictsForFacts(p: PreferencesRow | null, facts: IngredientFacts) {
+    return p ? conflictsOf(facts, this.restrictionsOf(p)) : [];
   }
 
   async userGender(userId: string) {

@@ -13,7 +13,7 @@ import { ProviderFactory, type Providers } from './infrastructure/providers.fact
 import { AccountRepository, AccountService } from './modules/account/index.js';
 import { AuthService, TokenService, UsersRepository } from './modules/auth/index.js';
 import { AuthoringService } from './modules/authoring/index.js';
-import { CatalogRepository, CatalogService, IngredientSearchService } from './modules/catalog/index.js';
+import { CatalogRepository, CatalogService, FoodRepository, IngredientSearchService } from './modules/catalog/index.js';
 import { ChefRepository, ChefService, InsightsService } from './modules/chef/index.js';
 import { CommunityService } from './modules/community/index.js';
 import { CookingRepository, CookingService, KitchenService } from './modules/cooking/index.js';
@@ -36,14 +36,14 @@ export type { Providers };
  */
 export async function createContainer(env: Env, log: FastifyBaseLogger, overrides: Partial<Providers> = {}) {
   const pg: Postgres = createPostgres(env.DATABASE_URL);
-  const mongo: Mongo = await createMongo(env.MONGO_URL, env.MONGO_DB);
+  const mongo: Mongo = await createMongo(env.MONGO_URL, env.MONGO_DB, env.MONGO_FOOD_DB);
   const db = pg.db;
 
   // Eventos: Factory → Event Store + Outbox → Relay → Transporte (RabbitMQ) → Subjects → Observers.
   const eventFactory = new DomainEventFactory();
   const eventStore = new PostgresEventStore(db, eventFactory);
   const outbox = new Outbox(db, eventStore, eventFactory);
-  const subjects = new SubjectRegistry(new ProcessedEventsLedger(db), log);
+  const subjects = new SubjectRegistry(new ProcessedEventsLedger(db), log, undefined, () => catalog.sync());
   const transport = await new EventTransportFactory(env, log).create({ subjects, factory: eventFactory });
   const relay = new OutboxRelay(db, eventFactory, transport.dispatcher, log, { maxAttempts: env.OUTBOX_MAX_ATTEMPTS });
   const events = new EventSystem(db, eventFactory, eventStore, outbox, relay, subjects, transport, log);
@@ -55,6 +55,7 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
     account: new AccountRepository(db, mongo.c),
     preferences: new PreferencesRepository(db),
     catalog: new CatalogRepository(db),
+    foods: new FoodRepository(mongo.foods),
     recipes: new RecipesRepository(db),
     media: new MediaRepository(db),
     pantry: new PantryRepository(db),
@@ -68,14 +69,19 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   };
 
   // catalog
-  const catalog = await new CatalogService(repos.catalog).ready();
+  const catalog = await new CatalogService(repos.catalog, repos.foods).ready();
+  // No bloquea el arranque, pero sin este catálogo el buscador se queda solo con los ingredientes base.
+  void repos.foods
+    .isEmpty()
+    .then((empty) => empty && log.warn(`products_slim está vacía o no existe en la base «${env.MONGO_FOOD_DB}» (MONGO_FOOD_DB)`))
+    .catch((err: unknown) => log.warn({ err }, 'no se pudo leer products_slim'));
   // auth
   const tokens = new TokenService(env.JWT_SECRET, env.ACCESS_TOKEN_TTL_SECONDS, env.REFRESH_TOKEN_TTL_DAYS, repos.users);
   const auth = new AuthService(db, repos.users, tokens, providers.oauth, outbox);
   // onboarding
   const preferences = new PreferencesService(db, repos.preferences, repos.users, catalog, outbox);
   const onboarding = new OnboardingService(db, repos.preferences, repos.users, repos.menus, preferences, outbox);
-  const ingredientSearch = new IngredientSearchService(catalog, preferences);
+  const ingredientSearch = new IngredientSearchService(catalog, repos.foods, preferences, log);
   // media
   const media = new MediaService(repos.media, providers.storage);
   // recipes

@@ -31,6 +31,7 @@ export class EventSubject {
     readonly streamId: string,
     private readonly ledger: ProcessedEventsLedger,
     private readonly log: FastifyBaseLogger,
+    private readonly beforeNotify?: () => Promise<void>,
   ) {}
 
   attach(observer: Observer): void {
@@ -63,6 +64,7 @@ export class EventSubject {
       event.id,
       interested.map((o) => o.name),
     );
+    await this.beforeNotify?.();
     const errors: unknown[] = [];
     const failed: string[] = [];
     for (const observer of interested) {
@@ -93,6 +95,8 @@ export class SubjectRegistry {
     private readonly ledger: ProcessedEventsLedger,
     private readonly log: FastifyBaseLogger,
     private readonly maxSubjects = 5_000,
+    /** Antes de notificar cada evento (p. ej. poner al día cachés que cambió otro proceso). */
+    private readonly beforeNotify?: () => Promise<void>,
   ) {}
 
   /** Conecta un observer a todos los Subjects, los actuales y los que se creen después. */
@@ -120,7 +124,7 @@ export class SubjectRegistry {
       this.subjects.set(streamId, subject);
       return subject;
     }
-    subject = new EventSubject(streamId, this.ledger, this.log);
+    subject = new EventSubject(streamId, this.ledger, this.log, this.beforeNotify);
     for (const o of this.systemObservers) subject.attach(o);
     this.subjects.set(streamId, subject);
     this.evictIdle();

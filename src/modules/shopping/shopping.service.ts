@@ -331,6 +331,7 @@ export class ShoppingService {
   }
 
   async addItems(userId: string, tz: string, items: { ingredientId: string; quantity?: { value: number; unit: Unit }; sourceRecipeId?: string }[]) {
+    await this.catalog.ensure(items.map((i) => i.ingredientId));
     const r = await this.db.transaction((tx) =>
       this.addIngredientsTx(
         tx,

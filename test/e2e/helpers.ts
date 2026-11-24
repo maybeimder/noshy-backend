@@ -5,6 +5,8 @@ import { loadEnv } from '../../src/infrastructure/config/env.js';
 import { buildApp } from '../../src/infrastructure/http/server.js';
 import { runMigrations } from '../../src/infrastructure/database/postgres/migrate.js';
 import { createPostgres } from '../../src/infrastructure/database/postgres/postgres.client.js';
+import type { FoodDoc } from '../../src/infrastructure/database/mongo/collections.js';
+import { normalizeText } from '../../src/modules/catalog/food-text.js';
 import { seed } from '../../src/infrastructure/database/seed/seed.js';
 
 export const TEST_DB_URL = process.env.TEST_DATABASE_URL ?? 'postgres://postgres@localhost:5432/noshy_test';
@@ -16,6 +18,18 @@ if (!/test/i.test(TEST_MONGO_DB)) throw new Error(`TEST_MONGO_DB="${TEST_MONGO_D
 export const TEST_EVENT_TRANSPORT = process.env.TEST_EVENT_TRANSPORT === 'rabbitmq' ? 'rabbitmq' : 'in-process';
 export const TEST_RABBITMQ_URL = process.env.TEST_RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672';
 export const TEST_RABBITMQ_PREFIX = 'noshy_test';
+
+/** Muestra de `products_slim` con la forma del catálogo real. */
+const food = (_id: string, name: string, o: Partial<FoodDoc> = {}): FoodDoc => ({ _id, name, brand: 'generic', popularity: 1, completeness: 0.5, search: normalizeText(`${name} ${o.brand ?? ''}`), ...o });
+const FOODS: FoodDoc[] = [
+  food('usda:1', 'Quinua (cruda)', { popularity: 1000, servings: [{ label: '100 g', grams: 100 }, { label: '1 taza', grams: 170 }], foodGroups: ['cereals'], per100g: { kcal: 368, protein_g: 14, carbs_g: 64, fat_g: 6 } }),
+  food('7701', 'Quinua en grano', { brand: 'Nutrilón', quantity: '500 g', nova: 1 }),
+  food('7702', 'Galletas con quinua', { brand: 'Tosh', popularity: 5000, allergens: ['en:milk', 'en:gluten'], foodGroups: ['biscuits-and-cakes'] }),
+  food('7703', 'Quinua sospechosa', { suspect: true, popularity: 9999 }),
+  food('7704', 'Crema de leche', { popularity: 900 }),
+  food('7705', 'Crema de leche', { brand: 'Alpina', quantity: '200 ml', allergens: ['en:milk'], popularity: 800 }),
+  ...Array.from({ length: 12 }, (_, n) => food(`arroz${n}`, 'Arroz blanco', { brand: `Marca ${n}`, quantity: '500 g', popularity: n })),
+];
 
 /** Base limpia: esquema de Postgres recreado, migraciones, catálogo y Mongo vacío. */
 export async function resetDatabases() {
@@ -30,10 +44,11 @@ export async function resetDatabases() {
   // Solo las colecciones del backend (basta con permisos readWrite sobre la base de prueba).
   const m = await MongoClient.connect(TEST_MONGO_URL);
   const db = m.db(TEST_MONGO_DB);
-  const mine = new Set(['chef_threads', 'chef_messages', 'cooking_events', 'user_signals', 'insights', 'receipt_scans']);
+  const mine = new Set(['chef_threads', 'chef_messages', 'cooking_events', 'user_signals', 'insights', 'receipt_scans', 'products_slim']);
   for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
     if (mine.has(name)) await db.collection(name).drop();
   }
+  await db.collection<FoodDoc>('products_slim').insertMany(FOODS);
   await m.close();
   if (TEST_EVENT_TRANSPORT === 'rabbitmq') await purgeTestQueues();
 }
@@ -56,6 +71,7 @@ export async function testApp(): Promise<FastifyInstance> {
     DATABASE_URL: TEST_DB_URL,
     MONGO_URL: TEST_MONGO_URL,
     MONGO_DB: TEST_MONGO_DB,
+    MONGO_FOOD_DB: TEST_MONGO_DB,
     JWT_SECRET: 'test-secret-test-secret-test-secret-123',
     RUN_WORKERS: 'false',
     RATE_LIMIT_ENABLED: 'false',

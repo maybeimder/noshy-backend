@@ -32,6 +32,7 @@ export class Scheduler {
       const { rows } = await client.query<{ ok: boolean }>('select pg_try_advisory_lock($1) as ok', [SCHEDULER_LOCK]);
       if (!rows[0]?.ok) return;
       try {
+        await this.c.services.catalog.sync();
         await fn();
       } finally {
         await client.query('select pg_advisory_unlock($1)', [SCHEDULER_LOCK]);
