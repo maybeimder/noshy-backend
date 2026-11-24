@@ -24,8 +24,9 @@ export type Providers = {
   recipeEstimator: RecipeEstimator | null;
 };
 
-/** Estimar varias recetas a la vez produce respuestas largas: nadie está esperando, se le da tiempo. */
-const ESTIMATE_TIMEOUT_MS = 120_000;
+/** Estimar recetas produce respuestas largas: más tiempo por modelo que al conversar, pero con un tope total. */
+const ESTIMATE_TIMEOUT_MS = 60_000;
+const ESTIMATE_DEADLINE_MS = 90_000;
 
 /**
  * GoF Factory de los servicios externos. Cada método decide la implementación según el entorno;
@@ -101,7 +102,7 @@ export class ProviderFactory {
 
   recipeEstimator(): RecipeEstimator | null {
     const key = this.env.OPENROUTER_API_KEY;
-    return key ? new LlmRecipeEstimator(new OpenRouterClient(key, this.models(), this.log, ESTIMATE_TIMEOUT_MS), this.log) : null;
+    return key ? new LlmRecipeEstimator(new OpenRouterClient(key, this.models(), this.log, ESTIMATE_TIMEOUT_MS, fetch, ESTIMATE_DEADLINE_MS), this.log) : null;
   }
 
   private models() {

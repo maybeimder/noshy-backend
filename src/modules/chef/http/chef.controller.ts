@@ -5,6 +5,8 @@ import { ok } from '../../../core/shared/http.js';
 import type { FeedbackBody, InsightParams, InsightVoteBody, MessageParams, MessagesQuery, ReadBody, SendMessageBody, ThreadBody, ThreadParams } from './chef.dto.js';
 import type { StreamEvent, ChefInput } from '../chef.service.js';
 
+const HEARTBEAT_MS = 10_000;
+
 export class ChefController {
   constructor(private readonly c: Container) {}
 
@@ -33,6 +35,7 @@ export class ChefController {
       return ok({ userMessage: created.find((m) => m.role === 'user') ?? null, chefMessage: chefMsg ? { ...chefMsg, blocks } : null });
     }
     let started = false;
+    let heartbeat: NodeJS.Timeout | undefined;
     const write = (e: StreamEvent) => {
       if (!started) {
         reply.hijack();
@@ -40,6 +43,8 @@ export class ChefController {
         for (const [name, value] of Object.entries(reply.getHeaders())) if (value !== undefined) reply.raw.setHeader(name, value);
         reply.raw.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
         started = true;
+        // Generar recetas tarda: sin tráfico, el proxy cortaría la conexión a los 60 s. Los comentarios SSE se ignoran.
+        heartbeat = setInterval(() => reply.raw.writable && reply.raw.write(': sigo aquí\n\n'), HEARTBEAT_MS);
       }
       reply.raw.write(`event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`);
     };
@@ -49,6 +54,7 @@ export class ChefController {
       if (!started) throw err;
       req.log.error({ err }, 'falló el stream del chef');
     }
+    clearInterval(heartbeat);
     if (started) reply.raw.end();
     return reply;
   };

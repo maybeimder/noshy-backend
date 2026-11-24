@@ -64,7 +64,7 @@ const FLAVOR = /\bsabor(?: (?:a|al|de))? \w+/g;
 /** «Sin lactosa», «libre de gluten», «0% lactosa»: la palabra aparece justo porque no lo contiene. */
 const FREE_FROM = /\b(?:sin|libre de|cero|0 ?%)(?: adicion de)? \w+/g;
 
-type Facts = { allergens: string[]; dietFlags: string[] };
+export type Facts = { allergens: string[]; dietFlags: string[] };
 
 function facts(d: FoodDoc): Facts {
   const clean = (text: string) => normalizeText(text).replace(TRACES, ' ').replace(FLAVOR, ' ').replace(FREE_FROM, ' ');
@@ -267,4 +267,7 @@ export function ingredientFromText(text: string): IngredientRow {
 }
 
 /** Alérgenos que se leen en un texto (español o inglés). */
-export const allergensIn = (text: string): string[] => facts({ _id: '', name: text, search: '' }).allergens;
+export const allergensIn = (text: string): string[] => factsIn(text).allergens;
+
+/** Alérgenos y banderas de dieta que se leen en un texto. */
+export const factsIn = (text: string): Facts => facts({ _id: '', name: text, search: '' });

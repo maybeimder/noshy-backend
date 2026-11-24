@@ -19,16 +19,21 @@ export class OpenRouterClient {
     readonly models: string[],
     private readonly log: FastifyBaseLogger,
     /** Por modelo. */
-    private readonly timeoutMs = 15_000,
+    private readonly timeoutMs = 25_000,
     private readonly fetchFn: typeof fetch = fetch,
+    /** Entre todos los modelos: alguien está esperando. */
+    private readonly deadlineMs = timeoutMs * 2,
   ) {}
 
   async chatJson(messages: ChatMessage[], temperature = 0.5): Promise<unknown> {
     let last: unknown = new Error('OpenRouter sin modelos configurados');
+    const until = performance.now() + this.deadlineMs;
     for (const model of this.models) {
       const started = performance.now();
+      const left = until - started;
+      if (left <= 0) break;
       try {
-        const out = await this.ask(model, messages, temperature);
+        const out = await this.ask(model, messages, temperature, Math.min(this.timeoutMs, left));
         this.log.info({ model, ms: Math.round(performance.now() - started) }, 'openrouter');
         return out;
       } catch (err) {
@@ -40,12 +45,12 @@ export class OpenRouterClient {
     throw last;
   }
 
-  private async ask(model: string, messages: ChatMessage[], temperature: number): Promise<unknown> {
+  private async ask(model: string, messages: ChatMessage[], temperature: number, timeoutMs: number): Promise<unknown> {
     const res = await this.fetchFn(ENDPOINT, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json', 'X-Title': 'Noshy' },
       body: JSON.stringify({ model, response_format: { type: 'json_object' }, temperature, messages }),
-      signal: AbortSignal.timeout(this.timeoutMs),
+      signal: AbortSignal.timeout(Math.ceil(timeoutMs)),
     });
     if (!res.ok) {
       const message = `OpenRouter respondió ${res.status}: ${(await res.text().catch(() => '')).slice(0, 300)}`;

@@ -29,6 +29,8 @@ export type ChefTools = {
   hasEquipment(id: string): boolean;
   /** Ingredientes, macros y pasos de una receta, en texto. */
   recipeBrief(recipeId: string): Promise<string | null>;
+  /** Hasta 2 recetas nuevas con esos ingredientes (en inglés), compatibles con la persona. null = no disponible. */
+  newRecipes: ((opts: { ingredients: string[]; excludeRecipeIds: string[] }) => Promise<RecipeCard[]>) | null;
 };
 
 export type ChefTurn = {
@@ -163,15 +165,17 @@ export class LlmChefEngine implements ChefEngine {
     }
     const context = turn.thread.context;
     let reply: string;
-    let card: RecipeCard | undefined;
+    let cards: RecipeCard[] = [];
+    let wanted: string[] = [];
     try {
       if (context.type === 'recipe') reply = (await this.ask(turn, tools, text, RECIPE_SYSTEM, `Receta:\n${(await tools.recipeBrief(context.recipeId)) ?? context.title}`)).reply;
       else {
         const [candidates, missing] = await Promise.all([tools.candidates({ excludeRecipeIds: turn.shownRecipeIds, limit: 10 }), tools.missingFromShoppingList()]);
         const list = candidates.map((c) => `- ${c.id} · ${c.title} · ${c.totalTimeMinutes.max} min · ${c.nutritionPerServing.kcal} kcal · ${c.nutritionPerServing.proteinG} g proteína`).join('\n');
-        const answer = await this.ask(turn, tools, text, MAIN_SYSTEM, `Candidatas:\n${list || '(ninguna)'}\nEn su lista de compras: ${missing.slice(0, 15).join(', ') || 'nada'}`);
+        const answer = await this.ask(turn, tools, text, tools.newRecipes ? MAIN_SYSTEM + NEW_RECIPE : MAIN_SYSTEM, `Candidatas:\n${list || '(ninguna)'}\nEn su lista de compras: ${missing.slice(0, 15).join(', ') || 'nada'}`);
         reply = answer.reply;
-        card = candidates.find((c) => c.id === answer.recipeId);
+        cards = candidates.filter((c) => answer.recipeIds.includes(c.id)).slice(0, MAX_CARDS);
+        wanted = tools.newRecipes && !cards.length ? answer.newRecipe : [];
       }
     } catch (err) {
       this.log.warn({ err }, 'LLM del chef falló; uso reglas');
@@ -179,31 +183,45 @@ export class LlmChefEngine implements ChefEngine {
       return;
     }
     for (const w of words(reply)) yield { type: 'text', delta: w };
-    if (card) {
+    if (wanted.length && tools.newRecipes) {
+      cards = await tools.newRecipes({ ingredients: wanted, excludeRecipeIds: turn.shownRecipeIds }).catch((err: unknown) => {
+        this.log.warn({ err }, 'no se pudieron generar recetas');
+        return [];
+      });
+      if (!cards.length) for (const w of words(' No encontré una que te sirva con eso; prueba con otro ingrediente.')) yield { type: 'text', delta: w };
+    }
+    for (const [i, card] of cards.slice(0, MAX_CARDS).entries()) {
+      const id = `b_card${i}`;
       yield { type: 'recipes', recipeIds: [card.id] };
-      yield { type: 'block', block: { id: 'b_card', type: 'recipeCard', recipe: { ...card, reasonLabel: 'Para ti' } as unknown as Record<string, unknown>, actions: ['save', 'addToShoppingList', 'cook'] } };
-      yield { type: 'block', block: { type: 'feedbackPrompt', targetBlockId: 'b_card', label: '¿Te late esta idea?', allowAnotherIdea: true } };
+      yield { type: 'block', block: { id, type: 'recipeCard', recipe: { ...card, reasonLabel: 'Para ti' } as unknown as Record<string, unknown>, actions: ['save', 'addToShoppingList', 'cook'] } };
+      yield { type: 'block', block: { type: 'feedbackPrompt', targetBlockId: id, label: '¿Te late esta idea?', allowAnotherIdea: i === Math.min(cards.length, MAX_CARDS) - 1 } };
     }
     yield { type: 'block', block: { type: 'suggestedPrompts', options: context.type === 'recipe' ? RECIPE_PROMPTS : MAIN_PROMPTS } };
   }
 
-  private async ask(turn: ChefTurn, tools: ChefTools, text: string, system: string, context: string): Promise<{ reply: string; recipeId: string | null }> {
+  private async ask(turn: ChefTurn, tools: ChefTools, text: string, system: string, context: string): Promise<{ reply: string; recipeIds: string[]; newRecipe: string[] }> {
     const out = (await this.llm.chatJson([
       { role: 'system', content: `${system}\n\nPersona: ${turn.userName}. Preferencias y restricciones: ${tools.preferencesSummary()}\n${context}` },
       ...turn.history.map((m) => ({ role: m.role === 'chef' ? ('assistant' as const) : ('user' as const), content: m.text })),
       { role: 'user', content: text },
-    ])) as { reply?: unknown; recipeId?: unknown } | null;
+    ])) as { reply?: unknown; recipeIds?: unknown; recipeId?: unknown; newRecipe?: unknown } | null;
+    const strings = (v: unknown) => (Array.isArray(v) ? v : [v]).filter((x): x is string => typeof x === 'string');
     if (typeof out?.reply !== 'string' || !out.reply.trim()) throw new Error('El modelo no devolvió «reply»');
-    return { reply: out.reply.trim(), recipeId: typeof out.recipeId === 'string' ? out.recipeId : null };
+    return { reply: out.reply.trim(), recipeIds: strings(out.recipeIds ?? out.recipeId), newRecipe: strings(out.newRecipe) };
   }
 }
+
+const MAX_CARDS = 2;
 
 const STYLE =
   'Eres el chef de Noshy: hablas en español de Colombia, cálido y breve. Respeta siempre sus alergias y restricciones; nunca propongas algo que choque con ellas. ' +
   'Solo hablas de cocina, comida, compras y nutrición general; no das consejo médico. ';
 const MAIN_SYSTEM =
-  `${STYLE}Máximo 3 frases. Responde la pregunta primero. Si la persona quiere una idea o receta, recomienda UNA de la lista de candidatas usando su id exacto; no inventes recetas ni ids. ` +
-  'Responde solo JSON: {"reply": string, "recipeId": string | null}. recipeId es null si no pidió qué comer.';
+  `${STYLE}Máximo 3 frases. Responde la pregunta primero. Si la persona quiere una idea o receta, recomienda una o máximo dos de la lista de candidatas usando su id exacto; no inventes recetas ni ids. ` +
+  'Responde solo JSON: {"reply": string, "recipeIds": string[], "newRecipe": string[]}. recipeIds va vacío si no pidió qué comer; newRecipe, vacío.';
+const NEW_RECIPE =
+  ' Excepción: si pidió una receta y NINGUNA candidata cumple lo que pidió (ingrediente, plato o estilo), deja recipeIds vacío y pon en newRecipe de 1 a 4 ingredientes principales ' +
+  'en inglés, singular y minúsculas, del más al menos importante (ej. ["chicken", "rice"]): el sistema le mostrará hasta 2 recetas reales. En reply di que se las buscas, sin describirlas.';
 const RECIPE_SYSTEM =
   `${STYLE}Máximo 4 frases. Responde dudas sobre la receta de abajo: sustituciones, cantidades, técnica, conservación y macros. Usa sus datos; si no sabes algo, dilo. ` +
   'Responde solo JSON: {"reply": string}.';

@@ -41,8 +41,6 @@ const EnvSchema = z.object({
   CHEF_ENGINE: z.enum(['rules', 'openrouter']).optional(),
   OPENROUTER_API_KEY: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().optional()),
   OPENROUTER_MODEL: csv,
-  /** Cuántas recetas de `recipes_raw` traer con macros estimados (0 = ninguna). Necesita OPENROUTER_API_KEY. */
-  LIBRARY_RECIPES_TARGET: z.coerce.number().int().min(0).max(2_000).default(200),
 
   /** Aplica migraciones y carga el catálogo (si está vacío) al arrancar la API. */
   MIGRATE_ON_START: bool.default(true),

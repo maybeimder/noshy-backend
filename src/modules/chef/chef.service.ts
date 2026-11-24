@@ -6,6 +6,8 @@ import type { UsersRepository } from '../auth/auth.repository.js';
 import type { ChefBlock, ChefMessageDoc, ChefThreadDoc } from '../../infrastructure/database/mongo/collections.js';
 import type { ChefEngine, ChefInputResolved, ChefTools } from './chef.providers.js';
 import type { RecommendationsService } from '../recipes/recommendations.service.js';
+import type { RecipeLibraryService } from '../recipes/library.service.js';
+import type { PreferencesRow } from '../onboarding/preferences.repository.js';
 import type { RecipesService } from '../recipes/recipes.service.js';
 import type { InsightsService } from './insights.service.js';
 import type { PreferencesService } from '../onboarding/preferences.service.js';
@@ -35,7 +37,8 @@ export type StreamEvent =
   | { event: 'message.completed'; data: { messageId: string } }
   | { event: 'error'; data: { code: string; message: string } };
 
-const STREAM_LOCK_MS = 60_000;
+/** Lo máximo que puede tardar una respuesta (conversar + generar recetas). */
+const STREAM_LOCK_MS = 150_000;
 /** Mensajes previos que ve el motor. */
 const HISTORY = 8;
 
@@ -52,6 +55,7 @@ export class ChefService {
     private readonly preferences: PreferencesService,
     private readonly catalog: CatalogService,
     private readonly engine: ChefEngine,
+    private readonly library: RecipeLibraryService,
     private readonly outbox: Outbox,
   ) {}
 
@@ -153,7 +157,7 @@ export class ChefService {
     throw Errors.validation([field('input.action.type', 'NOT_SUPPORTED', 'Esa acción no se envía como mensaje.')]);
   }
 
-  private tools(userId: string, prefsEquipment: string[], prefsSummary = ''): ChefTools {
+  private tools(userId: string, prefs: PreferencesRow, prefsSummary = ''): ChefTools {
     return {
       candidates: async ({ excludeRecipeIds, limit }) => {
         const ranked = (await this.recommendations.ranked(userId, { excludeRecipeIds })).slice(0, limit);
@@ -184,8 +188,16 @@ export class ChefService {
         await this.recipesRepo.insertProposal({ id, userId, recipeId, kind, summary, changes, stepNotes, expiresAt: new Date(Date.now() + 24 * 3_600_000) });
         return id;
       },
-      hasEquipment: (id) => prefsEquipment.includes(id),
+      hasEquipment: (id) => prefs.kitchen.equipmentIds.includes(id),
       recipeBrief: (recipeId) => this.recipes.brief(userId, recipeId).catch(() => null),
+      newRecipes: this.library.enabled
+        ? async ({ ingredients, excludeRecipeIds }) => {
+            const avoid = (f: { allergens: string[]; dietFlags: string[] }) => this.preferences.conflictsForFacts(prefs, { id: '', label: '', ...f }).length > 0;
+            const ids = await this.library.forRequest({ ingredients, avoid, excludeRecipeIds });
+            const ok = new Set((await this.recipes.compatible(userId, ids)).map((r) => r.id));
+            return (await this.recipes.cards(userId, ids)).filter((c) => ok.has(c.id));
+          }
+        : null,
     };
   }
 
@@ -247,7 +259,7 @@ export class ChefService {
     try {
       for await (const chunk of this.engine.reply(
         { userName: user?.name ?? '', thread, input: resolved, shownRecipeIds: shown, lastChefMessage: last, history },
-        this.tools(userId, prefs.kitchen.equipmentIds, this.preferences.rows(prefs, user?.grammaticalGender ?? null).map((r) => `${r.label}: ${r.summary}`).join('; ')),
+        this.tools(userId, prefs, this.preferences.rows(prefs, user?.grammaticalGender ?? null).map((r) => `${r.label}: ${r.summary}`).join('; ')),
       )) {
         if (chunk.type === 'text') {
           if (!textBlock) {

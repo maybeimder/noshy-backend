@@ -78,6 +78,29 @@ describe('biblioteca de recetas', () => {
     expect((await api.get('/catalog/ingredients/search?q=garbanzos')).body.data.filter((i: any) => i.id.startsWith('txt_'))).toEqual([]);
   });
 
+  it('bajo pedido: máximo dos distintas, sin gastar llamadas en lo que choca ni en lo ya estimado', async () => {
+    const raw = (_id: number, title: string, ner: string[]) => ({ _id, title, ner, ingredients: ner.map((n) => `1 c. ${n}`), nIngredients: 4, directions: ['Mix.'] });
+    await app.container.mongo.rawRecipes.insertMany([
+      raw(20, 'Quinoa salad', ['quinoa', 'tomato']), raw(21, 'quinoa  Salad!', ['quinoa', 'tomato']), raw(22, 'Quinoa with cheese', ['quinoa', 'cheddar cheese']),
+      raw(23, 'Quinoa bowl', ['quinoa', 'avocado']), raw(24, 'Quinoa soup', ['quinoa', 'carrot']),
+    ]);
+    const asked: number[][] = [];
+    const svc = library({ estimate: async (docs) => (asked.push(docs.map((d) => d._id)), docs.map((d) => estimate(d._id, d.title, ['Quinua', 'Verduras']))) });
+    const noDairy = { ingredients: ['Quinoa', '$where', 'unobtainium'], avoid: (f: { allergens: string[] }) => f.allergens.includes('lactose'), excludeRecipeIds: [] as string[] };
+    const first = await svc.forRequest(noDairy);
+    expect(first).toEqual(['rcp_lib_20', 'rcp_lib_23']);
+    expect(asked).toEqual([[20, 23]]);
+    expect(await svc.forRequest(noDairy)).toEqual(first);
+    expect(asked).toHaveLength(1);
+    expect(await svc.forRequest({ ...noDairy, excludeRecipeIds: first })).toEqual(['rcp_lib_21', 'rcp_lib_24']);
+    expect(asked.flat()).not.toContain(22);
+    expect(await svc.forRequest({ ...noDairy, ingredients: ['dragonfruit'] })).toEqual([]);
+    expect(await library(null).forRequest(noDairy)).toEqual([]);
+    expect(await library({ estimate: async () => Promise.reject(new Error('cuota')) }).forRequest({ ...noDairy, avoid: () => false, excludeRecipeIds: ['20', '21', '23', '24'].map((n) => `rcp_lib_${n}`) })).toEqual([]);
+    const me = (await app.container.repos.users.findByEmail('omni@correo.co'))!;
+    expect(await app.container.services.recipes.compatible(me.id, first)).toHaveLength(2);
+  });
+
   it('la API ve lo que importó otro proceso', async () => {
     const other = await testApp();
     try {

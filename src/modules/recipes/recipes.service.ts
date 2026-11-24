@@ -165,6 +165,12 @@ export class RecipesService {
     };
   }
 
+  /** Las que la persona puede comer, tal cual o adaptadas. */
+  async compatible(userId: string, recipeIds: string[]): Promise<RecipeRow[]> {
+    const evaluated = await this.evaluateMany(await this.repo.byIds(recipeIds), await this.context(userId));
+    return evaluated.filter((e) => e.evaluation.compatibility.ok).map((e) => e.recipe);
+  }
+
   /** Tarjetas en el mismo orden de `recipeIds`. */
   async cards(userId: string, recipeIds: string[], ctx?: UserContext): Promise<RecipeCard[]> {
     const c = ctx ?? (await this.context(userId));

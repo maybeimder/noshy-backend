@@ -135,7 +135,7 @@ src/
 ### Recomendaciones y biblioteca
 
 - El puntaje (`core/domain/recommendations.ts`) usa gustos, despensa, qué tan cerca queda la porción de las calorías de esa comida y lo aprendido (👎, 👍, me gusta, calificaciones y sabores cocinados; 60 días). Una receta sin macros no se recomienda.
-- **Biblioteca:** el scheduler trae recetas de `recipes_raw` (4 por hora, hasta `LIBRARY_RECIPES_TARGET`) traducidas y con macros **estimados** por un modelo; `pnpm recipes:import --target N` no espera. Se descartan si los macros no cuadran con las kcal (±25 %) o si la traducción pierde un alérgeno. Sus ingredientes son texto (`txt_…`), no se cruzan con el catálogo. Las tarjetas traen `nutritionEstimated: true`.
+- **Biblioteca:** cuando alguien le pide al chef una receta y ninguna encaja, se buscan en `recipes_raw` por ingrediente y se generan **máximo 2 opciones**, traducidas y con macros **estimados** por un modelo (una llamada por pedido; lo ya estimado se reutiliza). Se descartan si los macros no cuadran con las kcal (±25 %), si la traducción pierde un alérgeno o si chocan con la persona. Sus ingredientes son texto (`txt_…`), no se cruzan con el catálogo. Las tarjetas traen `nutritionEstimated: true`. `pnpm recipes:import --target N` precarga algunas a mano.
 - **Chef:** con `OPENROUTER_API_KEY` responde con IA texto libre, chips y dudas dentro de una receta, con los últimos 8 mensajes; prueba los modelos en orden y si todos fallan usa reglas. `GET /health` dice qué motor corre (`chef: openrouter | rules`).
 
 ## Event driven

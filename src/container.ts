@@ -100,7 +100,7 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   const nudges = new NudgesService(db, repos.nudges, repos.pantry, recommendations, outbox);
   // chef
   const insights = new InsightsService(repos.chef, outbox);
-  const chef = new ChefService(repos.chef, repos.recipes, repos.shopping, repos.users, recipes, recommendations, insights, preferences, catalog, providers.chefEngine, outbox);
+  const chef = new ChefService(repos.chef, repos.recipes, repos.shopping, repos.users, recipes, recommendations, insights, preferences, catalog, providers.chefEngine, recipeLibrary, outbox);
   // cooking
   const cooking = new CookingService(db, repos.cooking, repos.recipes, repos.media, recipes, pantry, days, outbox);
   const kitchen = new KitchenService(repos.cooking, repos.recipes, catalog);
