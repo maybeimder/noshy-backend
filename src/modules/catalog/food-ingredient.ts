@@ -41,23 +41,22 @@ const OFF_ALLERGENS: Record<string, string> = {
   gluten: 'gluten', milk: 'lactose', eggs: 'egg', nuts: 'nuts', peanuts: 'nuts', crustaceans: 'shellfish', molluscs: 'shellfish',
 };
 
-const FISH = words('pescados?', 'salmon', 'atun', 'bacalao', 'tilapia', 'trucha', 'sardinas?', 'anchoas?', 'mojarra', 'robalo', 'merluza', 'bagre', 'corvina', 'fish', 'tuna', 'cod');
-const SHELLFISH = words('mariscos?', 'camaron(?:es)?', 'langostinos?', 'cangrejos?', 'langostas?', 'almejas?', 'ostras?', 'mejillon(?:es)?', 'calamar(?:es)?', 'pulpo', 'shrimps?', 'prawns?', 'crab', 'squid');
-const POULTRY = words('pollo', 'gallina', 'pavo', 'pechugas?', 'contramuslos?', 'muslos?', 'chicken', 'turkey');
+const FISH = words('pescados?', 'salmon', 'atun', 'bacalao', 'tilapia', 'trucha', 'sardinas?', 'anchoas?', 'mojarra', 'robalo', 'merluza', 'bagre', 'corvina', 'fish', 'tuna', 'cod', 'anchov(?:y|ies)', 'trout', 'halibut', 'catfish', 'haddock', 'snapper');
+const SHELLFISH = words('mariscos?', 'camaron(?:es)?', 'langostinos?', 'cangrejos?', 'langostas?', 'almejas?', 'ostras?', 'mejillon(?:es)?', 'calamar(?:es)?', 'pulpo', 'shrimps?', 'prawns?', 'crab', 'squid', 'lobsters?', 'clams?', 'oysters?', 'scallops?', 'mussels?', 'crabmeat', 'octopus', 'vieiras?', 'gambas?', 'jaibas?');
+const POULTRY = words('pollo', 'gallina', 'pavo', 'pechugas?', 'contramuslos?', 'muslos?', 'chicken', 'turkey', 'duck', 'pato');
 const MEAT = words(
   'res', 'carnes?', 'ternera', 'cerdo', 'jamon', 'tocino', 'tocineta', 'chicharron', 'chorizos?', 'salchichas?', 'salchichon', 'mortadela', 'butifarra',
-  'morcilla', 'cordero', 'costillas?', 'hamburguesas?', 'salami', 'pepperoni', 'longaniza', 'lomo', 'higado', 'gelatina', 'beef', 'pork', 'ham', 'bacon', 'gelatin',
-);
-const DAIRY = words('leche', 'mantequilla', 'quesos?', 'quesito', 'queso crema', 'crema de leche', 'yogurt?', 'yogures', 'kumis', 'cuajada', 'arequipe', 'suero', 'lactosa', 'lacteos?', 'mozzarella', 'parmesano', 'ricotta', 'milk', 'butter', 'cheese', 'whey', 'lactose');
-const EGG = words('huevos?', 'claras?', 'yemas?', 'mayonesa', 'albumina', 'eggs?');
-const GLUTEN = words('trigo', 'cebada', 'centeno', 'harina', 'pan', 'pan rallado', 'apanad[oa]s?', 'pastas?', 'espaguetis?', 'spaghetti', 'macarron(?:es)?', 'fideos', 'galletas?', 'cerveza', 'salsa de soya', 'cuscus', 'semola', 'gluten', 'wheat', 'barley', 'rye', 'flour');
-const NUTS = words('nuez', 'nueces', 'almendras?', 'maranon(?:es)?', 'avellanas?', 'pistachos?', 'macadamias?', 'pecanas?', 'mani', 'cacahuates?', 'frutos secos', 'nuts', 'almonds?', 'peanuts?', 'hazelnuts?');
+  'morcilla', 'cordero', 'costillas?', 'hamburguesas?', 'salami', 'pepperoni', 'longaniza', 'lomo', 'higado', 'gelatina', 'beef', 'pork', 'ham', 'bacon', 'gelatin', 'steak', 'sausages?', 'veal', 'lamb', 'meatballs?', 'hot dogs?', 'tocino', 'albondigas?');
+const DAIRY = words('leche', 'mantequilla', 'quesos?', 'quesito', 'queso crema', 'cremas?', 'nata', 'yogurt?', 'yogures', 'kumis', 'cuajada', 'arequipe', 'suero', 'lactosa', 'lacteos?', 'mozzarella', 'parmesano', 'ricotta', 'milk', 'butter', 'cheese', 'whey', 'lactose', 'buttermilk', 'cream', 'yoghurt', 'cheddar', 'parmesan', 'half-and-half', 'ghee');
+const EGG = words('huevos?', 'claras?', 'yemas?', 'mayonesa', 'albumina', 'eggs?', 'mayonnaise', 'mayo');
+const GLUTEN = words('trigo', 'cebada', 'centeno', 'harina', 'pan', 'pan rallado', 'apanad[oa]s?', 'pastas?', 'espaguetis?', 'spaghetti', 'macarron(?:es)?', 'fideos', 'galletas?', 'cerveza', 'salsa de soya', 'cuscus', 'semola', 'tallarin(?:es)?', 'lasana', 'panko', 'hojaldre', 'raviolis?', 'espaguetis?', 'gluten', 'wheat', 'barley', 'rye', 'flour', 'bread', 'breadcrumbs', 'bread crumbs', 'crackers?', 'noodles?', 'macaroni', 'lasagna', 'couscous', 'cous cous', 'croutons', 'soy sauce', 'biscuits?', 'bisquick', 'bulgur', 'seitan');
+const NUTS = words('nuez', 'nueces', 'almendras?', 'maranon(?:es)?', 'avellanas?', 'pistachos?', 'macadamias?', 'pecanas?', 'mani', 'cacahuates?', 'frutos secos', 'nuts', 'almonds?', 'peanuts?', 'hazelnuts?', 'walnuts?', 'pecans?', 'cashews?', 'pistachios', 'marzipan', 'pesto');
 const HONEY = words('miel', 'honey');
 
 // Frases que traen una palabra del léxico pero no ese alimento.
-const NOT_DAIRY = /\b(?:leche|crema|queso|bebida|yogurt?) (?:de|vegetal(?: de)?) (?:coco|almendras?|soya|soja|avena|arroz|mani)\b|\b(?:mantequilla|crema) de (?:mani|cacao|almendras?)\b|\bmanteca de cacao\b/g;
-const NOT_GLUTEN = /\bharina de (?:maiz|arroz|almendras?|yuca|coco|avena|garbanzos?|platano)\b|\b(?:pastas?|fideos) de (?:tomate|mani|ajo|arroz|garbanzos?|aji)\b|\bpan de yuca\b/g;
-const NOT_NUTS = /\bnuez moscada\b/g;
+const NOT_DAIRY = /\b(?:leche|crema|queso|bebida|yogurt?) (?:de|vegetal(?: de)?) (?:coco|almendras?|soya|soja|avena|arroz|mani)\b|\b(?:peanut|almond|cashew|apple|cocoa|coconut|soy|oat|rice) (?:butter|milk|cream)\b|\bcream of tartar\b|\bbutter (?:beans?|lettuce)\b|\b(?:mantequilla|crema) de (?:mani|cacao|almendras?)\b|\bmanteca de cacao\b/g;
+const NOT_GLUTEN = /\bharina de (?:maiz|arroz|almendras?|yuca|coco|avena|garbanzos?|platano)\b|\b(?:pastas?|fideos) de (?:tomate|mani|ajo|arroz|garbanzos?|aji)\b|\bpan de yuca\b|\b(?:rice|almond|corn|coconut|potato|tapioca) (?:flour|noodles?|pasta)\b|\bgluten free \w+/g;
+const NOT_NUTS = /\bnuez moscada\b|\bnutmeg\b/g;
 const NOT_MEAT = /\blomos? de (?:atun|salmon|pescado|tilapia|trucha)\b|\b(?:hamburguesas?|chorizos?|salchichas?|carnes?) (?:vegetal(?:es)?|vegan[oa]s?|de (?:lentejas?|soya|soja|garbanzos?))\b/g;
 /** «Puede contener trazas de…» no es «contiene». */
 const TRACES = /(?:puede contener|trazas de|may contain)(?:(?!\bcontiene\b)[^.;])*/g;
@@ -266,3 +265,6 @@ export function ingredientFromText(text: string): IngredientRow {
     typicalPack: { value: 1, unit: 'unit', label: '1 und' },
   };
 }
+
+/** Alérgenos que se leen en un texto (español o inglés). */
+export const allergensIn = (text: string): string[] => facts({ _id: '', name: text, search: '' }).allergens;

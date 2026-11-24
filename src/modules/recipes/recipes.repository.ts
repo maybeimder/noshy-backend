@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, lt, or, sql, type SQL } from 'drizzle-orm';
 import type { Db, Executor } from '../../infrastructure/database/postgres/postgres.client.js';
 import {
   adaptationProposals,
@@ -27,6 +27,12 @@ export class RecipesRepository {
   async byIds(ids: string[]): Promise<RecipeRow[]> {
     if (ids.length === 0) return [];
     return this.db.select().from(recipes).where(inArray(recipes.id, ids));
+  }
+
+  /** Recetas traídas de la biblioteca (macros estimados). */
+  async countLibrary(): Promise<number> {
+    const [r] = await this.db.select({ n: count() }).from(recipes).where(eq(recipes.nutritionStatus, 'estimated'));
+    return r?.n ?? 0;
   }
 
   async published(): Promise<RecipeRow[]> {

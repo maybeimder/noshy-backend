@@ -15,6 +15,7 @@ const card = (id: string) => ({
   pantryMatch: { have: 3, total: 4 },
   isAdapted: false,
   isSaved: false,
+  nutritionEstimated: false,
 });
 const tools: ChefTools = {
   candidates: async () => [card('rcp_A'), card('rcp_B')],
@@ -25,6 +26,7 @@ const tools: ChefTools = {
   recipe: async () => null,
   proposeAdaptation: async () => 'prp_1',
   hasEquipment: () => false,
+  recipeBrief: async () => 'Ajiaco · 4 porciones\nPor porción: 600 kcal',
 };
 const turn = (text: string): ChefTurn => ({
   userName: 'Diana',
@@ -32,6 +34,7 @@ const turn = (text: string): ChefTurn => ({
   input: { kind: 'text', text },
   shownRecipeIds: [],
   lastChefMessage: null,
+  history: [],
 });
 const collect = async (it: AsyncIterable<ChefChunk>) => {
   const out: ChefChunk[] = [];
@@ -61,5 +64,53 @@ describe('LlmChefEngine', () => {
     const chunks = await collect(new LlmChefEngine(llm, new RuleBasedChefEngine(), log).reply(turn('dame una idea'), tools));
     const block = chunks.find((c) => c.type === 'block' && c.block.type === 'recipeCard') as unknown as { block: { recipe: { id: string } } };
     expect(block.block.recipe.id).toBe('rcp_RULES');
+  });
+
+  const recording = (replies: Record<string, { status?: number; content?: string }>) => {
+    const calls: { model: string; messages: { role: string; content: string }[] }[] = [];
+    const f = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      calls.push(body);
+      const r = replies[body.model] ?? {};
+      return new Response(JSON.stringify({ choices: [{ message: { content: r.content } }] }), { status: r.status ?? 200 });
+    }) as unknown as typeof fetch;
+    return { calls, f };
+  };
+  const textOf = (chunks: ChefChunk[]) => chunks.flatMap((c) => (c.type === 'text' ? [c.delta] : [])).join('');
+  const ok = { content: '{"reply":"Claro que sí","recipeId":null}' };
+
+  it('un modelo retirado, vacío o que no da JSON no tumba a los demás; una key mala sí corta', async () => {
+    const { calls, f } = recording({ retirado: { status: 404 }, vacio: {}, texto: { content: 'hola' }, bueno: ok });
+    const llm = new OpenRouterClient('k', ['retirado', 'vacio', 'texto', 'bueno'], log, 1000, f);
+    expect(await llm.chatJson([])).toMatchObject({ reply: 'Claro que sí' });
+    expect(calls.map((c) => c.model)).toEqual(['retirado', 'vacio', 'texto', 'bueno']);
+    const bad = recording({ a: { status: 401 }, b: ok });
+    await expect(new OpenRouterClient('k', ['a', 'b'], log, 1000, bad.f).chatJson([])).rejects.toThrow('401');
+    expect(bad.calls).toHaveLength(1);
+  });
+
+  it('manda la conversación anterior y las restricciones', async () => {
+    const { calls, f } = recording({ m: ok });
+    const t = { ...turn('¿y con menos grasa?'), history: [{ role: 'user' as const, text: 'quiero pasta' }, { role: 'chef' as const, text: 'Mira esta' }] };
+    await collect(new LlmChefEngine(new OpenRouterClient('k', ['m'], log, 1000, f), new RuleBasedChefEngine(), log).reply(t, tools));
+    expect(calls[0]!.messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+    expect(calls[0]!.messages[0]!.content).toContain('Sin lactosa');
+    expect(calls[0]!.messages.at(-1)!.content).toBe('¿y con menos grasa?');
+  });
+
+  it('dentro de una receta responde el modelo con sus datos; airfryer y «otra idea» siguen en reglas', async () => {
+    const { calls, f } = recording({ m: { content: '{"reply":"Sí, con leche de coco."}' } });
+    const engine = new LlmChefEngine(new OpenRouterClient('k', ['m'], log, 1000, f), new RuleBasedChefEngine(), log);
+    const inRecipe = { ...turn('¿puedo reemplazar la leche?'), thread: { ...turn('').thread, context: { type: 'recipe' as const, recipeId: 'rcp_A', title: 'Ajiaco' } } };
+    const chunks = await collect(engine.reply(inRecipe, tools));
+    expect(textOf(chunks)).toBe('Sí, con leche de coco.');
+    expect(calls[0]!.messages[0]!.content).toContain('600 kcal');
+    await collect(engine.reply({ ...turn(''), input: { kind: 'anotherIdea', recipeId: null } }, tools));
+    await collect(engine.reply({ ...turn(''), input: { kind: 'suggestedPrompt', optionId: 'sp_whattobuy', label: '¿Qué compro?' } }, tools));
+    await collect(engine.reply(turn('¿qué compro?'), tools));
+    expect(calls).toHaveLength(1);
+    await collect(engine.reply({ ...turn(''), input: { kind: 'suggestedPrompt', optionId: 'sp_moreprotein', label: 'Más proteína' } }, tools));
+    await collect(engine.reply(turn('compré pollo, ¿qué hago?'), tools));
+    expect(calls).toHaveLength(3);
   });
 });

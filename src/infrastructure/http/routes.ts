@@ -18,6 +18,10 @@ import { shoppingRoutes } from '../../modules/shopping/index.js';
 
 /** Rutas de cada módulo bajo /api/v1. Cada módulo declara las suyas en `http/<módulo>.routes.ts`. */
 export async function apiV1(app: FastifyInstance) {
+  // El worker también agrega ingredientes (recetas de la biblioteca): la memoria de la API se pone al día.
+  app.addHook('preHandler', async (req) => {
+    await app.container.services.catalog.sync().catch((err: unknown) => req.log.warn({ err }, 'catálogo sin refrescar'));
+  });
   for (const routes of [
     authRoutes,
     accountRoutes,

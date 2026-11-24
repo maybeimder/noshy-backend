@@ -44,7 +44,7 @@ export async function resetDatabases() {
   // Solo las colecciones del backend (basta con permisos readWrite sobre la base de prueba).
   const m = await MongoClient.connect(TEST_MONGO_URL);
   const db = m.db(TEST_MONGO_DB);
-  const mine = new Set(['chef_threads', 'chef_messages', 'cooking_events', 'user_signals', 'insights', 'receipt_scans', 'products_slim']);
+  const mine = new Set(['chef_threads', 'chef_messages', 'cooking_events', 'user_signals', 'insights', 'receipt_scans', 'products_slim', 'recipes_raw']);
   for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
     if (mine.has(name)) await db.collection(name).drop();
   }

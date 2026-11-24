@@ -24,6 +24,7 @@
     "db:up": "docker compose up -d postgres",
     "test:rabbit": "TEST_EVENT_TRANSPORT=rabbitmq vitest run",
     "events:replay": "tsx --env-file-if-exists=.env src/entrypoints/replay-events.ts",
+    "recipes:import": "tsx --env-file-if-exists=.env src/entrypoints/import-recipes.ts",
     "rabbit:up": "docker compose up -d rabbitmq",
     "rabbit:down": "docker compose stop rabbitmq"
   },

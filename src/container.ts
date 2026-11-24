@@ -24,7 +24,7 @@ import { OnboardingService, PreferencesRepository, PreferencesService } from './
 import { PantryRepository, PantryService, PantrySetupService } from './modules/pantry/index.js';
 import { ProfileService } from './modules/profile/index.js';
 import { ReceiptsRepository, ReceiptsService } from './modules/receipts/index.js';
-import { NutritionService, RecipesRepository, RecipesService, RecommendationsService } from './modules/recipes/index.js';
+import { NutritionService, RecipeLibraryRepository, RecipeLibraryService, RecipesRepository, RecipesService, RecommendationsService } from './modules/recipes/index.js';
 import { ShoppingRepository, ShoppingService } from './modules/shopping/index.js';
 
 export type { Providers };
@@ -86,7 +86,8 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   const media = new MediaService(repos.media, providers.storage);
   // recipes
   const recipes = new RecipesService(db, repos.recipes, repos.pantry, repos.shopping, repos.chef, catalog, preferences, repos.users, outbox, env.SHARE_BASE_URL);
-  const recommendations = new RecommendationsService(repos.recipes, recipes, repos.cooking, catalog);
+  const recommendations = new RecommendationsService(repos.recipes, recipes, repos.cooking, repos.chef, log);
+  const recipeLibrary = new RecipeLibraryService(db, new RecipeLibraryRepository(mongo.rawRecipes), repos.recipes, catalog, providers.recipeEstimator, log);
   const nutrition = new NutritionService(repos.recipes, catalog, providers.nutritionEstimator);
   // pantry, receipts, shopping, menus
   const pantry = new PantryService(db, repos.pantry, catalog, recommendations, outbox);
@@ -122,6 +123,7 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
     media,
     recipes,
     recommendations,
+    recipeLibrary,
     nutrition,
     pantry,
     pantrySetup,

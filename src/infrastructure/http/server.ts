@@ -14,6 +14,7 @@ import { registerAuthenticate } from '../../modules/auth/index.js';
 import { registerRequireOnboarding } from '../../modules/onboarding/index.js';
 import { registerTimezone } from './middlewares/timezone.middleware.js';
 import { registerIdempotency } from './middlewares/idempotency.middleware.js';
+import { LlmChefEngine } from '../../modules/chef/index.js';
 import { apiV1 } from './routes.js';
 
 export type BuildOptions = { env: Env; logger?: FastifyServerOptions['logger']; providers?: Partial<Providers> };
@@ -73,7 +74,7 @@ export async function buildApp({ env, logger, providers }: BuildOptions) {
     const status = !ok ? 'down' : broker.healthy() ? 'ok' : 'degraded';
     return reply
       .code(ok ? 200 : 503)
-      .send({ status, postgres: pg.status === 'fulfilled', mongo: mongo.status === 'fulfilled', events: { transport: broker.kind, connected: broker.healthy() } });
+      .send({ status, postgres: pg.status === 'fulfilled', mongo: mongo.status === 'fulfilled', events: { transport: broker.kind, connected: broker.healthy() }, chef: container.providers.chefEngine instanceof LlmChefEngine ? 'openrouter' : 'rules' });
   });
 
   await app.register(apiV1, { prefix: '/api/v1' });

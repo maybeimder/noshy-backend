@@ -56,6 +56,8 @@ export type RecipeCard = {
   pantryMatch: { have: number; total: number };
   isAdapted: boolean;
   isSaved: boolean;
+  /** Macros estimados por un modelo, no sumados desde el catálogo. */
+  nutritionEstimated: boolean;
 };
 
 const hashOf = (x: unknown) => createHash('sha1').update(JSON.stringify(x)).digest('hex').slice(0, 16);
@@ -115,13 +117,34 @@ export class RecipesService {
       recipe,
       evaluation,
       ingredients,
-      nutritionPerServing: nutrition.status === 'empty' ? (recipe.nutritionPerServing ?? nutrition.perServing) : nutrition.perServing,
+      nutritionPerServing: nutrition.status === 'empty' || recipe.nutritionStatus === 'estimated' ? (recipe.nutritionPerServing ?? nutrition.perServing) : nutrition.perServing,
       pantryMatch: { have: main.filter((i) => ctx.pantry.has(i.ingredientId)).length, total: main.length },
     };
   }
 
+  /** Con los ingredientes listos en memoria: el worker pudo crear recetas que este proceso aún no conoce. */
+  private async ingredientsFor(recipeIds: string[]) {
+    const rows = await this.repo.ingredientsFor(recipeIds);
+    await this.catalog.ensure([...rows.values()].flat().map((r) => r.ingredientId));
+    return rows;
+  }
+
+  /** Receta en texto, adaptada a la persona, para que el chef responda dudas sobre ella. */
+  async brief(userId: string, recipeId: string): Promise<string> {
+    const recipe = await this.getVisible(userId, recipeId);
+    const rows = (await this.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
+    const e = this.evaluate(recipe, rows, await this.context(userId));
+    const n = e.nutritionPerServing;
+    return [
+      `${recipe.title} · ${recipe.baseServings} porciones · ${recipe.timeMax ?? recipe.timeMin ?? '?'} min`,
+      `Por porción: ${n.kcal} kcal, ${n.proteinG} g proteína, ${n.carbsG} g carbohidratos, ${n.fatG} g grasa`,
+      `Ingredientes: ${e.ingredients.map((i) => `${this.catalog.quantity(i.ingredientId, i.value, i.unit).display} ${i.label}`).join('; ')}`,
+      `Pasos: ${this.cookingSteps(recipe, null, 1).map((s, i) => `${i + 1}. ${s.subSteps.map((x) => x.text).join(' ')}`).join(' ')}`,
+    ].join('\n');
+  }
+
   async evaluateMany(recipes: RecipeRow[], ctx: UserContext): Promise<Evaluated[]> {
-    const ingredients = await this.repo.ingredientsFor(recipes.map((r) => r.id));
+    const ingredients = await this.ingredientsFor(recipes.map((r) => r.id));
     return recipes.map((r) => this.evaluate(r, ingredients.get(r.id) ?? [], ctx));
   }
 
@@ -138,6 +161,7 @@ export class RecipesService {
       pantryMatch: e.pantryMatch,
       isAdapted: e.evaluation.substitutions.length > 0,
       isSaved: saved,
+      nutritionEstimated: r.nutritionStatus === 'estimated',
     };
   }
 
@@ -195,7 +219,7 @@ export class RecipesService {
   async detail(userId: string, recipeId: string, opts: { servings?: number; adapted: boolean }) {
     const recipe = await this.getVisible(userId, recipeId);
     const ctx = await this.context(userId);
-    const rows = (await this.repo.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
+    const rows = (await this.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
     const e = this.evaluate(recipe, rows, ctx, opts.adapted);
     const adaptation = opts.adapted ? await this.ensureAdaptation(ctx, e) : null;
     this.outbox.kick();
@@ -257,7 +281,7 @@ export class RecipesService {
   async resolvedFor(userId: string, recipeId: string, servings: number, adaptationId?: string | null, ctx?: UserContext, exec: Executor = this.db) {
     const recipe = await this.getVisible(userId, recipeId);
     const c = ctx ?? (await this.context(userId));
-    const rows = (await this.repo.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
+    const rows = (await this.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
     const e = this.evaluate(recipe, rows, c);
     let adaptation: AdaptationRow | null = null;
     if (adaptationId) {
@@ -349,7 +373,7 @@ export class RecipesService {
     if (proposal.expiresAt < new Date()) throw Errors.gone('PROPOSAL_EXPIRED', 'La propuesta venció. Pregúntale de nuevo al chef.');
     const recipe = await this.getVisible(userId, recipeId);
     const ctx = await this.context(userId);
-    const rows = (await this.repo.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
+    const rows = (await this.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
     const e = this.evaluate(recipe, rows, ctx);
     const subs = e.evaluation.substitutions;
     await this.db.transaction(async (tx) => {

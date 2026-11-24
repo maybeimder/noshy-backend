@@ -1,10 +1,13 @@
 import type { RecipesRepository } from './recipes.repository.js';
+import { createHash } from 'node:crypto';
+import type { FastifyBaseLogger } from 'fastify';
+import type { UserSignalDoc } from '../../infrastructure/database/mongo/collections.js';
+import type { ChefRepository } from '../chef/chef.repository.js';
 import type { CookingRepository } from '../cooking/cooking.repository.js';
 import type { RecipesService, UserContext, Evaluated } from './recipes.service.js';
 import { score, pantryReasonLabel, type Candidate, type UserTaste } from '../../core/domain/recommendations.js';
 import type { MealSlotId } from '../../core/domain/catalog.js';
 import { decodeCursor, encodeCursor } from '../../core/shared/cursor.js';
-import type { CatalogService } from '../catalog/catalog.service.js';
 
 export type RecommendInput = {
   slot?: MealSlotId;
@@ -16,6 +19,26 @@ export type RecommendInput = {
   cursor?: string;
 };
 
+/** Un 👎 deja de pesar a los dos meses: los gustos cambian y el catálogo no es infinito. */
+const SIGNALS_DAYS = 60;
+const LEARNED_FLAVOR_MIN = 3;
+
+/** Lo que dicen las señales del usuario. La opinión más reciente sobre una receta manda. */
+export function tasteFromSignals(signals: UserSignalDoc[]) {
+  const opinion = new Map<string, number>();
+  const flavors = new Map<string, number>();
+  for (const s of [...signals].sort((a, b) => a.at.getTime() - b.at.getTime())) {
+    if (s.kind === 'cooked') for (const t of s.tags ?? []) flavors.set(t, (flavors.get(t) ?? 0) + 1);
+    if (!s.recipeId || s.value === undefined) continue;
+    if (s.kind === 'ideaFeedback') opinion.set(s.recipeId, s.value);
+    // Quitar un «me gusta» no es rechazarla: vuelve a neutro.
+    else if (s.kind === 'liked') opinion.set(s.recipeId, Math.max(0, s.value));
+    else if (s.kind === 'rated') opinion.set(s.recipeId, s.value >= 4 ? 1 : s.value <= 2 ? -1 : 0);
+  }
+  const having = (sign: number) => [...opinion].filter(([, v]) => v === sign).map(([id]) => id);
+  return { disliked: having(-1), liked: having(1), learnedFlavors: [...flavors].filter(([, n]) => n >= LEARNED_FLAVOR_MIN).map(([t]) => t) };
+}
+
 /**
  * Ideas de recetas. Una sola fuente para «Hoy para ti», el banner de la despensa,
  * los avisos de vencimiento, el menú semanal y las ideas del chef.
@@ -25,22 +48,31 @@ export class RecommendationsService {
     private readonly recipesRepo: RecipesRepository,
     private readonly recipes: RecipesService,
     private readonly cooking: CookingRepository,
-    private readonly catalog: CatalogService,
+    private readonly chef: ChefRepository,
+    private readonly log: FastifyBaseLogger,
   ) {}
 
-  private taste(ctx: UserContext, disliked: string[]): UserTaste {
+  private async taste(ctx: UserContext): Promise<UserTaste> {
+    const signals = await this.chef.signals(ctx.userId, new Date(Date.now() - SIGNALS_DAYS * 86_400_000)).catch((err: unknown) => {
+      this.log.warn({ err }, 'sin señales del usuario: recomiendo solo con sus preferencias');
+      return [];
+    });
+    const learned = tasteFromSignals(signals);
     return {
       maxCookingMinutes: ctx.prefs.kitchen.maxCookingMinutes,
       favoriteDishIds: ctx.prefs.favoriteDishIds,
       lovedFlavors: ctx.prefs.loves.map((l) => l.id),
       likedCuisineIds: ctx.prefs.likedCuisines.map((c) => c.id),
-      dislikedRecipeIds: disliked,
+      dislikedRecipeIds: learned.disliked,
+      likedRecipeIds: learned.liked,
+      learnedFlavors: learned.learnedFlavors,
+      kcalTarget: ctx.prefs.nutritionTargets.kcal,
     };
   }
 
   async ranked(userId: string, input: RecommendInput, ctx?: UserContext) {
     const c = ctx ?? (await this.recipes.context(userId));
-    const [published, recent] = await Promise.all([this.recipesRepo.published(), this.cooking.countsSince(userId, new Date(Date.now() - 14 * 86_400_000))]);
+    const [taste, published, recent] = await Promise.all([this.taste(c), this.recipesRepo.published(), this.cooking.countsSince(userId, new Date(Date.now() - 14 * 86_400_000))]);
     const evaluated = await this.recipes.evaluateMany(published, c);
     const using = input.usingIngredientIds ?? [];
     const exclude = new Set(input.excludeRecipeIds ?? []);
@@ -58,11 +90,15 @@ export class RecommendationsService {
         usesIngredientIds: e.ingredients.map((i) => i.ingredientId),
         timesCookedLast14d: recent.get(e.recipe.id) ?? 0,
         compatible: e.evaluation.compatibility.ok,
+        kcal: e.nutritionPerServing.kcal,
       };
-      const s = score(cand, this.taste(c, []), { slot: input.slot, source: input.source ?? 'forYou', usingIngredientIds: using, maxMinutes: input.maxMinutes });
+      const s = score(cand, taste, { slot: input.slot, source: input.source ?? 'forYou', usingIngredientIds: using, maxMinutes: input.maxMinutes });
       if (s !== null) scored.push({ e, s });
     }
-    return scored.sort((a, b) => b.s - a.s || a.e.recipe.id.localeCompare(b.e.recipe.id));
+    // Los empates rotan por persona y día: con muchas recetas parecidas, por id saldrían siempre las mismas.
+    const day = new Date().toISOString().slice(0, 10);
+    const order = (id: string) => createHash('sha1').update(`${userId}|${day}|${id}`).digest('hex');
+    return scored.map((x) => ({ ...x, o: order(x.e.recipe.id) })).sort((a, b) => b.s - a.s || a.o.localeCompare(b.o));
   }
 
   reasonFor(e: Evaluated, input: RecommendInput) {

@@ -119,6 +119,9 @@ export type FoodDoc = {
   completeness?: number;
 };
 
+/** Receta de `recipes_raw` (RecipeNLG): en inglés, sin macros ni porciones. Solo lectura. */
+export type RawRecipeDoc = { _id: number; title: string; ingredients?: string[]; directions?: string[]; ner?: string[]; nIngredients?: number };
+
 export type MongoCollections = {
   chefThreads: Collection<ChefThreadDoc>;
   chefMessages: Collection<ChefMessageDoc>;

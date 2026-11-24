@@ -34,3 +34,8 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 - **Verificar después:** que `PUT /api/v1/storage/upload` acepte el cuerpo binario con `Content-Type: image/jpeg|png|webp|heic` (parser de Fastify) y responda a la consulta CORS desde el dominio del front; y que `publicUrl()` devuelva el mismo dominio, porque si no las fotos subidas tampoco se verán.
 
 **Estado en el backend:** con tests, el `PUT` acepta jpeg, png, webp y heic, responde a CORS y `publicUrl()` usa el mismo dominio. Falta definir `PUBLIC_BASE_URL` en el `.env` del servidor.
+
+## 3. Nuevo en el backend
+
+- Las tarjetas y el detalle de receta traen `nutritionEstimated: boolean`: `true` si los macros los estimó un modelo. Conviene mostrarlo («≈ 620 kcal»).
+- Las recetas de la biblioteca no cruzan ingredientes con el catálogo: su `pantryMatch` suele ser `0/N`, mejor no mostrarlo cuando `nutritionEstimated` es `true`.

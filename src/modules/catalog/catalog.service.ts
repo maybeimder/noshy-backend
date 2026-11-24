@@ -110,6 +110,17 @@ export class CatalogService {
     return row.id;
   }
 
+  /** Ingredientes de texto tal cual, sin buscarles equivalente en el catálogo. Devuelve los ids en el mismo orden. */
+  async addTexts(texts: string[]): Promise<string[]> {
+    const rows = texts.map(ingredientFromText);
+    const fresh = [...new Map(rows.map((r) => [r.id, r])).values()].filter((r) => !this.hasIngredient(r.id));
+    if (fresh.length) {
+      await this.repo.insertIngredients(fresh);
+      await this.remember(fresh);
+    }
+    return rows.map((r) => r.id);
+  }
+
   private async remember(rows: IngredientRow[]) {
     // Una recarga en curso pudo leer antes del insert: se espera para no perder los nuevos.
     if (this.loading) await this.loading;

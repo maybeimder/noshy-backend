@@ -1,7 +1,7 @@
 import { MongoClient, type Collection } from 'mongodb';
-import { collections, ensureIndexes, type FoodDoc, type MongoCollections } from './collections.js';
+import { collections, ensureIndexes, type FoodDoc, type MongoCollections, type RawRecipeDoc } from './collections.js';
 
-export type Mongo = { client: MongoClient; c: MongoCollections; foods: Collection<FoodDoc>; dbName: string; close: () => Promise<void> };
+export type Mongo = { client: MongoClient; c: MongoCollections; foods: Collection<FoodDoc>; rawRecipes: Collection<RawRecipeDoc>; dbName: string; close: () => Promise<void> };
 
 /** Base que trae la URL (`mongodb://host:27017/food?authSource=food` → `food`), si trae una. */
 export function dbNameFromUrl(url: string): string | null {
@@ -20,5 +20,6 @@ export async function createMongo(url: string, dbName?: string, foodDb = 'food')
   const client = await MongoClient.connect(url, { ignoreUndefined: true, serverSelectionTimeoutMS: 10_000 });
   const c = collections(client.db(name));
   await ensureIndexes(c);
-  return { client, c, foods: client.db(foodDb).collection<FoodDoc>('products_slim'), dbName: name, close: () => client.close() };
+  const food = client.db(foodDb);
+  return { client, c, foods: food.collection<FoodDoc>('products_slim'), rawRecipes: food.collection<RawRecipeDoc>('recipes_raw'), dbName: name, close: () => client.close() };
 }

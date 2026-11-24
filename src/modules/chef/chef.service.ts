@@ -36,6 +36,8 @@ export type StreamEvent =
   | { event: 'error'; data: { code: string; message: string } };
 
 const STREAM_LOCK_MS = 60_000;
+/** Mensajes previos que ve el motor. */
+const HISTORY = 8;
 
 /** Conversación con el chef: hilos, historial, mensajes con streaming y retroalimentación. */
 export class ChefService {
@@ -183,6 +185,7 @@ export class ChefService {
         return id;
       },
       hasEquipment: (id) => prefsEquipment.includes(id),
+      recipeBrief: (recipeId) => this.recipes.brief(userId, recipeId).catch(() => null),
     };
   }
 
@@ -207,7 +210,17 @@ export class ChefService {
       throw Errors.conflict('CHEF_BUSY', 'El chef todavía está respondiendo tu mensaje anterior.');
 
     const { resolved, userText } = await this.resolveInput(userId, body.input);
-    const [user, prefs, shown] = await Promise.all([this.users.findById(userId), this.preferences.getOrThrow(userId), this.repo.shownRecipeIds(thread._id)]);
+    const [user, prefs, shown, previous] = await Promise.all([
+      this.users.findById(userId),
+      this.preferences.getOrThrow(userId),
+      this.repo.shownRecipeIds(thread._id),
+      this.repo.messages(thread._id, HISTORY, null),
+    ]);
+    const history = previous
+      .slice(0, HISTORY)
+      .reverse()
+      .map((m) => ({ role: m.role, text: m.blocks.flatMap((b) => (b.type === 'text' ? [b.text] : b.type === 'recipeCard' ? [`[Receta: ${String(b.recipe.title ?? '')}]`] : [])).join(' ') }))
+      .filter((m) => m.text);
 
     const userMsg: ChefMessageDoc = {
       _id: newId('message'),
@@ -233,7 +246,7 @@ export class ChefService {
     const idMap = new Map<string, string>();
     try {
       for await (const chunk of this.engine.reply(
-        { userName: user?.name ?? '', thread, input: resolved, shownRecipeIds: shown, lastChefMessage: last },
+        { userName: user?.name ?? '', thread, input: resolved, shownRecipeIds: shown, lastChefMessage: last, history },
         this.tools(userId, prefs.kitchen.equipmentIds, this.preferences.rows(prefs, user?.grammaticalGender ?? null).map((r) => `${r.label}: ${r.summary}`).join('; ')),
       )) {
         if (chunk.type === 'text') {

@@ -27,6 +27,8 @@ export type ChefTools = {
   recipe(recipeId: string): Promise<{ id: string; title: string; hasHighHeatStep: number | null } | null>;
   proposeAdaptation(recipeId: string, kind: 'airfryer', summary: string, changes: string[], stepNotes: { stepIndex: number; text: string }[]): Promise<string>;
   hasEquipment(id: string): boolean;
+  /** Ingredientes, macros y pasos de una receta, en texto. */
+  recipeBrief(recipeId: string): Promise<string | null>;
 };
 
 export type ChefTurn = {
@@ -35,6 +37,8 @@ export type ChefTurn = {
   input: ChefInputResolved;
   shownRecipeIds: string[];
   lastChefMessage: ChefMessageDoc | null;
+  /** Lo último que se dijeron, del más viejo al más nuevo (sin el mensaje actual). */
+  history: { role: 'user' | 'chef'; text: string }[];
 };
 
 export interface ChefEngine {
@@ -132,10 +136,16 @@ export class RuleBasedChefEngine implements ChefEngine {
 import type { FastifyBaseLogger } from 'fastify';
 import type { OpenRouterClient } from '../../infrastructure/ai/openrouter.client.js';
 
+/** Chips con respuesta fija: datos exactos que no hace falta inventar. */
+const FIXED_OPTIONS = new Set(['sp_whattobuy', 'sp_airfryer']);
+const RECIPE_PROMPTS = [{ id: 'sp_airfryer', label: '¿Puedo hacerla en airfryer?' }, { id: 'sp_freeze', label: '¿Se puede congelar?' }];
+const MAIN_PROMPTS = [{ id: 'sp_lactosefree', label: 'Sin lactosa' }, { id: 'sp_whattobuy', label: '¿Qué compro?' }, { id: 'sp_moreprotein', label: 'Más proteína' }];
+
 /**
- * Motor con LLM (OpenRouter). Las acciones con respuesta fija (otra idea, chips, airfryer, ¿qué compro?)
- * siguen en reglas; el texto libre del hilo principal lo responde el modelo eligiendo entre candidatas
- * reales del catálogo. Si el modelo falla o responde mal, cae al motor de reglas sin que el usuario lo note.
+ * Motor con LLM (OpenRouter). Responde texto libre y chips, con la conversación a la vista: en el hilo principal elige
+ * entre candidatas reales; en el de una receta, responde dudas con sus ingredientes, macros y pasos.
+ * «Otra idea», «¿Qué compro?» y la versión airfryer (que crea una propuesta) siguen en reglas.
+ * Si el modelo falla o responde mal, cae al motor de reglas.
  */
 export class LlmChefEngine implements ChefEngine {
   constructor(
@@ -145,35 +155,26 @@ export class LlmChefEngine implements ChefEngine {
   ) {}
 
   async *reply(turn: ChefTurn, tools: ChefTools): AsyncIterable<ChefChunk> {
-    const text = turn.input.kind === 'text' ? turn.input.text : null;
-    const ruled = !text || turn.thread.context.type === 'recipe' || /air ?fryer|compr|congel/i.test(text);
-    if (ruled) {
+    const { input } = turn;
+    const text = input.kind === 'text' ? input.text : input.kind === 'anotherIdea' || FIXED_OPTIONS.has(input.optionId) ? null : input.label;
+    if (!text || /air ?fryer|freidora de aire|^\W*qu[eé] (?:me falta )?(?:compro|comprar)\W*$/i.test(text)) {
       yield* this.fallback.reply(turn, tools);
       return;
     }
-    let parsed: { reply?: unknown; recipeId?: unknown };
-    let candidates: RecipeCard[] = [];
+    const context = turn.thread.context;
+    let reply: string;
+    let card: RecipeCard | undefined;
     try {
-      candidates = await tools.candidates({ excludeRecipeIds: turn.shownRecipeIds, limit: 6 });
-      const list = candidates.map((c) => `- ${c.id} · ${c.title} · ${c.totalTimeMinutes.max} min · ${c.nutritionPerServing.kcal} kcal · ${c.pantryMatch.have}/${c.pantryMatch.total} en despensa`).join('\n');
-      parsed = (await this.llm.chatJson([
-        {
-          role: 'system',
-          content:
-            'Eres el chef de Noshy: hablas en español de Colombia, cálido y breve (máximo 2 frases). ' +
-            'Solo puedes recomendar recetas de la lista de candidatas, usando su id exacto. ' +
-            'Responde solo JSON: {"reply": string, "recipeId": string | null}. recipeId es null si la persona no pidió comida.',
-        },
-        { role: 'user', content: `Persona: ${turn.userName}. Preferencias: ${tools.preferencesSummary()}\nCandidatas:\n${list}\n\nMensaje: ${text}` },
-      ])) as typeof parsed;
+      if (context.type === 'recipe') reply = (await this.ask(turn, tools, text, RECIPE_SYSTEM, `Receta:\n${(await tools.recipeBrief(context.recipeId)) ?? context.title}`)).reply;
+      else {
+        const [candidates, missing] = await Promise.all([tools.candidates({ excludeRecipeIds: turn.shownRecipeIds, limit: 10 }), tools.missingFromShoppingList()]);
+        const list = candidates.map((c) => `- ${c.id} · ${c.title} · ${c.totalTimeMinutes.max} min · ${c.nutritionPerServing.kcal} kcal · ${c.nutritionPerServing.proteinG} g proteína`).join('\n');
+        const answer = await this.ask(turn, tools, text, MAIN_SYSTEM, `Candidatas:\n${list || '(ninguna)'}\nEn su lista de compras: ${missing.slice(0, 15).join(', ') || 'nada'}`);
+        reply = answer.reply;
+        card = candidates.find((c) => c.id === answer.recipeId);
+      }
     } catch (err) {
       this.log.warn({ err }, 'LLM del chef falló; uso reglas');
-      yield* this.fallback.reply(turn, tools);
-      return;
-    }
-    const reply = typeof parsed.reply === 'string' && parsed.reply.trim() ? parsed.reply.trim() : null;
-    const card = typeof parsed.recipeId === 'string' ? candidates.find((c) => c.id === parsed.recipeId) : undefined;
-    if (!reply) {
       yield* this.fallback.reply(turn, tools);
       return;
     }
@@ -183,6 +184,26 @@ export class LlmChefEngine implements ChefEngine {
       yield { type: 'block', block: { id: 'b_card', type: 'recipeCard', recipe: { ...card, reasonLabel: 'Para ti' } as unknown as Record<string, unknown>, actions: ['save', 'addToShoppingList', 'cook'] } };
       yield { type: 'block', block: { type: 'feedbackPrompt', targetBlockId: 'b_card', label: '¿Te late esta idea?', allowAnotherIdea: true } };
     }
-    yield { type: 'block', block: { type: 'suggestedPrompts', options: [{ id: 'sp_lactosefree', label: 'Sin lactosa' }, { id: 'sp_whattobuy', label: '¿Qué compro?' }, { id: 'sp_moreprotein', label: 'Más proteína' }] } };
+    yield { type: 'block', block: { type: 'suggestedPrompts', options: context.type === 'recipe' ? RECIPE_PROMPTS : MAIN_PROMPTS } };
+  }
+
+  private async ask(turn: ChefTurn, tools: ChefTools, text: string, system: string, context: string): Promise<{ reply: string; recipeId: string | null }> {
+    const out = (await this.llm.chatJson([
+      { role: 'system', content: `${system}\n\nPersona: ${turn.userName}. Preferencias y restricciones: ${tools.preferencesSummary()}\n${context}` },
+      ...turn.history.map((m) => ({ role: m.role === 'chef' ? ('assistant' as const) : ('user' as const), content: m.text })),
+      { role: 'user', content: text },
+    ])) as { reply?: unknown; recipeId?: unknown } | null;
+    if (typeof out?.reply !== 'string' || !out.reply.trim()) throw new Error('El modelo no devolvió «reply»');
+    return { reply: out.reply.trim(), recipeId: typeof out.recipeId === 'string' ? out.recipeId : null };
   }
 }
+
+const STYLE =
+  'Eres el chef de Noshy: hablas en español de Colombia, cálido y breve. Respeta siempre sus alergias y restricciones; nunca propongas algo que choque con ellas. ' +
+  'Solo hablas de cocina, comida, compras y nutrición general; no das consejo médico. ';
+const MAIN_SYSTEM =
+  `${STYLE}Máximo 3 frases. Responde la pregunta primero. Si la persona quiere una idea o receta, recomienda UNA de la lista de candidatas usando su id exacto; no inventes recetas ni ids. ` +
+  'Responde solo JSON: {"reply": string, "recipeId": string | null}. recipeId es null si no pidió qué comer.';
+const RECIPE_SYSTEM =
+  `${STYLE}Máximo 4 frases. Responde dudas sobre la receta de abajo: sustituciones, cantidades, técnica, conservación y macros. Usa sus datos; si no sabes algo, dilo. ` +
+  'Responde solo JSON: {"reply": string}.';

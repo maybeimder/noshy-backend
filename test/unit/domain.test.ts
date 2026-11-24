@@ -138,8 +138,8 @@ describe('racha, franjas, recomendaciones y cursores', () => {
   });
 
   it('descarta incompatibles y premia la despensa', () => {
-    const base = { recipeId: 'r', mealSlots: ['lunch' as const], timeMax: 20, cuisineId: null, flavorTags: [], dishId: null, usesIngredientIds: [], timesCookedLast14d: 0, compatible: true };
-    const taste = { maxCookingMinutes: 30, favoriteDishIds: [], lovedFlavors: [], likedCuisineIds: [], dislikedRecipeIds: [] };
+    const base = { recipeId: 'r', mealSlots: ['lunch' as const], timeMax: 20, cuisineId: null, flavorTags: [], dishId: null, usesIngredientIds: [], timesCookedLast14d: 0, compatible: true, kcal: 600 };
+    const taste = { maxCookingMinutes: 30, favoriteDishIds: [], lovedFlavors: [], likedCuisineIds: [], dislikedRecipeIds: [], likedRecipeIds: [], learnedFlavors: [], kcalTarget: 2000 };
     const full = score({ ...base, pantry: { have: 4, total: 4 } }, taste, { slot: 'lunch', source: 'pantry', usingIngredientIds: [] })!;
     const none = score({ ...base, pantry: { have: 0, total: 4 } }, taste, { slot: 'lunch', source: 'pantry', usingIngredientIds: [] })!;
     expect(full).toBeGreaterThan(none);
