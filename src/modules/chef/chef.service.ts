@@ -192,8 +192,7 @@ export class ChefService {
       recipeBrief: (recipeId) => this.recipes.brief(userId, recipeId).catch(() => null),
       newRecipes: this.library.enabled
         ? async ({ ingredients, excludeRecipeIds }) => {
-            const avoid = (f: { allergens: string[]; dietFlags: string[] }) => this.preferences.conflictsForFacts(prefs, { id: '', label: '', ...f }).length > 0;
-            const ids = await this.library.forRequest({ ingredients, avoid, excludeRecipeIds });
+            const ids = await this.library.forRequest({ ingredients, avoid: this.recipes.avoidFor(prefs), excludeRecipeIds });
             const ok = new Set((await this.recipes.compatible(userId, ids)).map((r) => r.id));
             return (await this.recipes.cards(userId, ids)).filter((c) => ok.has(c.id));
           }

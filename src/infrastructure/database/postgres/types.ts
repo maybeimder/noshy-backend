@@ -26,7 +26,7 @@ export type StepTemplate = {
   doneWhen: string | null;
 };
 /** Paso simple de una receta creada por un usuario (antes de estructurarla). */
-export type UserStep = { text: string; timerSeconds?: number; heat?: 'low' | 'medium' | 'high' };
+export type UserStep = { text: string; timerSeconds?: number; heat?: 'low' | 'medium' | 'high'; /** Ingredientes que se usan en el paso; sin esto se deducen del texto. */ ingredientIds?: string[] };
 
 export type ChefConsultable = { enabled: boolean; useMyStyle: boolean; suggestSubstitutes: boolean };
 export type Labeled = { id: string; label: string };

@@ -10,7 +10,7 @@ describe('biblioteca de recetas', () => {
   const restrictions = (dietStyle: string, allergyIds: string[] = []) => ({ dietStyle, allergyIds, careIds: [], customExclusions: [] });
   const estimate = (sourceId: number, title: string, labels: string[]): EstimatedRecipe => ({
     sourceId, title, servings: 4, minutes: 25, difficulty: 'easy', mealSlots: ['lunch', 'dinner'], cuisineId: 'american', flavorTags: ['comfort'],
-    ingredients: labels.map((label) => ({ label, value: 400, unit: 'g' as const })), steps: ['Mezcla todo.', 'Hornea 20 minutos.'], perServing: { kcal: 620, proteinG: 30, carbsG: 70, fatG: 24 },
+    ingredients: labels.map((label) => ({ label, value: 400, unit: 'g' as const })), steps: [{ text: 'Mezcla todo.', uses: [1] }, { text: 'Hornea 20 minutos.', uses: [0, 9] }], perServing: { kcal: 620, proteinG: 30, carbsG: 70, fatG: 24 },
   });
   const OUT: EstimatedRecipe[] = [
     estimate(1, 'Guiso de garbanzos', ['Garbanzos', 'Tomate', 'Sal']),
@@ -72,7 +72,8 @@ describe('biblioteca de recetas', () => {
     expect((await api.get('/me/shopping-lists/current')).status).toBe(200);
     const cook = await api.post('/me/cooking-sessions', { recipeId: 'rcp_lib_1', servings: 2 });
     expect(cook.status, JSON.stringify(cook.body)).toBe(201);
-    expect(cook.body.data.steps).toHaveLength(2);
+    expect(cook.body.data.steps.map((st: any) => st.ingredients.map((i: any) => `${i.quantity.display} ${i.label}`))).toEqual([['200 g Tomate', '200 g Sal'], ['200 g Garbanzos']]);
+    expect(d.steps.map((st: any) => st.ingredients.map((i: any) => i.label))).toEqual([['Tomate', 'Sal'], ['Garbanzos']]);
     await api.post(`/me/cooking-sessions/${cook.body.data.id}/abandon`, { atStepIndex: 0, reason: 'later' });
     // No ensucian el buscador.
     expect((await api.get('/catalog/ingredients/search?q=garbanzos')).body.data.filter((i: any) => i.id.startsWith('txt_'))).toEqual([]);
@@ -99,6 +100,26 @@ describe('biblioteca de recetas', () => {
     expect(await library({ estimate: async () => Promise.reject(new Error('cuota')) }).forRequest({ ...noDairy, avoid: () => false, excludeRecipeIds: ['20', '21', '23', '24'].map((n) => `rcp_lib_${n}`) })).toEqual([]);
     const me = (await app.container.repos.users.findByEmail('omni@correo.co'))!;
     expect(await app.container.services.recipes.compatible(me.id, first)).toHaveLength(2);
+  });
+
+  it('explorar: recetario completo, intercalado, sin el filtro de tiempo y creciendo de a poco', async () => {
+    const all = await ideas('omni');
+    const labels = new Set(all.map((r) => r.reason.label));
+    expect([...labels]).toEqual(expect.arrayContaining(['De la comunidad', 'Recetario']));
+    expect(all.slice(0, 3).map((r) => r.reason.label)).toContain('Recetario');
+    expect(all.some((r) => r.totalTimeMinutes.max > 40)).toBe(true);
+    expect((await ideas('omni', '&maxMinutes=15')).every((r) => r.totalTimeMinutes.max <= 25)).toBe(true);
+    expect((await ideas('omni', '&slot=lunch')).some((r) => r.reason.label === 'Recetario')).toBe(false);
+    const p1 = (await users.omni!.get('/me/recommendations?limit=5')).body;
+    const p2 = (await users.omni!.get(`/me/recommendations?limit=5&cursor=${p1.meta.nextCursor}`)).body;
+    expect(new Set([...p1.data, ...p2.data].map((r: any) => r.id)).size).toBe(10);
+    let calls = 0;
+    const svc = library({ estimate: async () => (calls++, []) });
+    const t = Date.now();
+    for (let m = 0; m < 300; m += 5) await svc.growForExplore(() => false, t + m * 60_000);
+    expect(calls).toBeGreaterThan(0);
+    expect(calls).toBeLessThanOrEqual(24); // tope diario (puede cruzar la medianoche)
+    expect(library(null).growForExplore(() => false)).toBeNull();
   });
 
   it('la API ve lo que importó otro proceso', async () => {

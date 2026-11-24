@@ -18,7 +18,8 @@ export type EstimatedRecipe = {
   cuisineId: string | null;
   flavorTags: string[];
   ingredients: { label: string; value: number; unit: 'g' | 'ml' | 'unit' }[];
-  steps: string[];
+  /** `uses`: posiciones de `ingredients`. */
+  steps: { text: string; uses: number[] }[];
   perServing: Macros;
 };
 
@@ -31,7 +32,7 @@ Recibes recetas en inglés. Para cada una: tradúcela al español de Colombia, p
 Calcula los macros sumando los ingredientes y dividiendo por las porciones; kcal debe cuadrar con 4*proteína + 4*carbohidratos + 9*grasa.
 Las porciones deben ser realistas (un plato fuerte ronda 350–800 kcal). No quites ni agregues ingredientes.
 Responde SOLO JSON:
-{"recipes":[{"id":<id recibido>,"title":"...","servings":<n>,"minutes":<total>,"difficulty":"easy|medium|hard","mealSlots":["breakfast|snack1|lunch|snack2|dinner"],"cuisine":"${Object.keys(CUISINES).join('|')}","flavors":["${FLAVORS.join('|')}"],"ingredients":[{"label":"...","value":<n>,"unit":"g|ml|unit"}],"steps":["..."],"perServing":{"kcal":<n>,"proteinG":<n>,"carbsG":<n>,"fatG":<n>}}]}`;
+{"recipes":[{"id":<id recibido>,"title":"...","servings":<n>,"minutes":<total>,"difficulty":"easy|medium|hard","mealSlots":["breakfast|snack1|lunch|snack2|dinner"],"cuisine":"${Object.keys(CUISINES).join('|')}","flavors":["${FLAVORS.join('|')}"],"ingredients":[{"label":"...","value":<n>,"unit":"g|ml|unit"}],"steps":[{"text":"...","uses":[<posiciones de ingredients que se usan por primera vez en este paso, desde 0>]}],"perServing":{"kcal":<n>,"proteinG":<n>,"carbsG":<n>,"fatG":<n>}}]}`;
 
 const num = z.coerce.number().finite();
 /** Filtra lo que no sea una opción válida en vez de descartar la receta entera. */
@@ -51,7 +52,15 @@ const Item = z.object({
   cuisine: z.string().catch(''),
   flavors: only(FLAVORS),
   ingredients: z.array(z.object({ label: z.string().trim().min(2).max(60), value: num.pipe(z.number().positive().max(10_000)), unit: z.enum(['g', 'ml', 'unit']) })).min(2).max(20),
-  steps: z.array(z.string().trim().min(3).max(600)).min(1).max(20),
+  steps: z
+    .array(
+      z.union([
+        z.string().trim().min(3).max(600).transform((text) => ({ text, uses: [] as number[] })),
+        z.object({ text: z.string().trim().min(3).max(600), uses: z.array(z.coerce.number().int()).catch([]) }),
+      ]),
+    )
+    .min(1)
+    .max(20),
   perServing: z.object({ kcal: num, proteinG: num, carbsG: num, fatG: num }),
 });
 

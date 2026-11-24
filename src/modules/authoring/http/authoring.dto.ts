@@ -11,7 +11,7 @@ export const PatchRecipeBody = z
     servings: z.number().int().min(1).max(20),
     difficulty: z.enum(['easy', 'medium', 'hard']),
     ingredients: z.array(z.object({ ingredientId: z.string().max(64), quantity: QuantityInput, prep: z.string().max(80).optional() })).max(60),
-    steps: z.array(z.object({ text: z.string().trim().min(1).max(1000), timerSeconds: z.number().int().min(1).max(86_400).optional(), heat: z.enum(['low', 'medium', 'high']).optional() })).max(40),
+    steps: z.array(z.object({ text: z.string().trim().min(1).max(1000), timerSeconds: z.number().int().min(1).max(86_400).optional(), heat: z.enum(['low', 'medium', 'high']).optional(), ingredientIds: z.array(z.string().min(3).max(64)).max(60).optional() })).max(40),
     chefConsultable: z.object({ enabled: z.boolean(), useMyStyle: z.boolean(), suggestSubstitutes: z.boolean() }),
   })
   .partial();

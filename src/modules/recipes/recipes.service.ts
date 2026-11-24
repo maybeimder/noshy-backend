@@ -11,6 +11,7 @@ import type { CatalogService } from '../catalog/catalog.service.js';
 import type { PreferencesService } from '../onboarding/preferences.service.js';
 import { evaluateRecipe, type RecipeEvaluation, type Labeled } from '../../core/domain/restrictions.js';
 import { recipeNutrition, type Macros } from '../../core/domain/nutrition.js';
+import { assignStepIngredients } from '../../core/domain/step-ingredients.js';
 import { heatLabel, type Quantity, type Unit } from '../../core/domain/quantity.js';
 import { DIFFICULTIES, labelOf, type GoalId } from '../../core/domain/catalog.js';
 import type { CookingStepSnapshot } from '../cooking/cooking.snapshots.js';
@@ -139,7 +140,7 @@ export class RecipesService {
       `${recipe.title} · ${recipe.baseServings} porciones · ${recipe.timeMax ?? recipe.timeMin ?? '?'} min`,
       `Por porción: ${n.kcal} kcal, ${n.proteinG} g proteína, ${n.carbsG} g carbohidratos, ${n.fatG} g grasa`,
       `Ingredientes: ${e.ingredients.map((i) => `${this.catalog.quantity(i.ingredientId, i.value, i.unit).display} ${i.label}`).join('; ')}`,
-      `Pasos: ${this.cookingSteps(recipe, null, 1).map((s, i) => `${i + 1}. ${s.subSteps.map((x) => x.text).join(' ')}`).join(' ')}`,
+      `Pasos: ${this.cookingSteps(recipe, rows, null, 1).map((s, i) => `${i + 1}. ${s.subSteps.map((x) => x.text).join(' ')}`).join(' ')}`,
     ].join('\n');
   }
 
@@ -163,6 +164,11 @@ export class RecipesService {
       isSaved: saved,
       nutritionEstimated: r.nutritionStatus === 'estimated',
     };
+  }
+
+  /** Para descartar, antes de gastar nada, lo que choca con la persona. */
+  avoidFor(prefs: PreferencesRow) {
+    return (f: { allergens: string[]; dietFlags: string[] }) => this.preferences.conflictsForFacts(prefs, { id: '', label: '', ...f }).length > 0;
   }
 
   /** Las que la persona puede comer, tal cual o adaptadas. */
@@ -247,11 +253,12 @@ export class RecipesService {
       servings: { value: servingsValue, min: 1, max: 8 },
       difficulty: recipe.difficulty ? { id: recipe.difficulty, label: labelOf(DIFFICULTIES, recipe.difficulty) } : null,
       stepsCount: recipe.steps.length || recipe.userSteps.length,
-      steps: this.cookingSteps(recipe, adaptation, factor).map((st) => ({
+      steps: this.cookingSteps(recipe, rows, adaptation, factor).map((st) => ({
         title: st.title,
         text: st.subSteps.map((ss) => ss.text).join(' '),
         timerSeconds: st.subSteps.reduce((a, ss) => a + (ss.timerSeconds ?? 0), 0) || null,
         heatLevel: st.heat.level,
+        ingredients: st.ingredients.map((i) => ({ ...i, inPantry: i.ingredientId ? ctx.pantry.has(i.ingredientId) : true })),
       })),
       adaptation: adaptation
         ? { id: adaptation.id, reasons: adaptation.reasons, substitutions: adaptation.substitutions, stepNotes: adaptation.stepNotes }
@@ -305,18 +312,18 @@ export class RecipesService {
       });
     }
     const factor = servings / recipe.baseServings;
-    return { recipe, evaluated: e, adaptation, factor, ingredients: e.ingredients.map((i) => ({ ...i, value: i.value === null ? null : i.value * factor })) };
+    return { recipe, rows, evaluated: e, adaptation, factor, ingredients: e.ingredients.map((i) => ({ ...i, value: i.value === null ? null : i.value * factor })) };
   }
 
   /** Pasos para modo cocina: sustituciones aplicadas, cantidades escaladas y alertas de cambio de calor. */
-  cookingSteps(recipe: RecipeRow, adaptation: AdaptationRow | null, factor: number): CookingStepSnapshot[] {
+  cookingSteps(recipe: RecipeRow, rows: RecipeIngredientRow[], adaptation: AdaptationRow | null, factor: number): CookingStepSnapshot[] {
     const subs = adaptation?.substitutions ?? [];
     const swap = new Map(subs.map((s) => [s.from.ingredientId, s]));
     const replaceText = (text: string) =>
       subs.reduce((t, s) => t.replace(new RegExp(s.from.label, 'gi'), s.to.label.toLowerCase()), text);
     const notes = new Map((adaptation?.stepNotes ?? []).map((n) => [n.stepIndex, n.text]));
     let lastHeat = 0;
-    const templates = recipe.steps.length ? recipe.steps : this.structureUserSteps(recipe);
+    const templates = this.withIngredients(recipe, recipe.steps.length ? recipe.steps : this.structureUserSteps(recipe), rows);
     return templates.map((st, index) => {
       const subSteps = st.subSteps.map((ss, j) => {
         let heatChange: { from: number; to: number; message: string } | undefined;
@@ -360,6 +367,25 @@ export class RecipesService {
   }
 
   /** Recetas de usuario sin estructura: cada paso es un subpaso con su temporizador. */
+  /**
+   * Completa los ingredientes de cada paso. Las recetas que ya los traen no se tocan; las publicadas por usuarios antes
+   * de esto los tienen todos en el primer paso, así que se reparten de nuevo.
+   */
+  private withIngredients(recipe: RecipeRow, steps: StepTemplate[], rows: RecipeIngredientRow[]): StepTemplate[] {
+    const [first, ...rest] = steps;
+    if (!first || rest.some((s) => s.ingredients.length) || (first.ingredients.length && recipe.authorType !== 'user')) return steps;
+    const texts = steps.map((s, i) => ({
+      text: [s.title, ...s.subSteps.map((x) => x.text)].join('. '),
+      // Los pasos estructurados salen uno a uno de los del usuario.
+      ingredientIds: recipe.userSteps.length === steps.length ? recipe.userSteps[i]!.ingredientIds : undefined,
+    }));
+    const uses = assignStepIngredients(
+      texts,
+      rows.map((r) => ({ id: r.ingredientId, label: this.catalog.label(r.ingredientId), categoryId: this.catalog.ingredient(r.ingredientId)?.categoryId })),
+    );
+    return steps.map((s, i) => ({ ...s, ingredients: uses[i]!.map((k) => ({ ingredientId: rows[k]!.ingredientId, prep: rows[k]!.prep, value: rows[k]!.value, unit: rows[k]!.unit })) }));
+  }
+
   structureUserSteps(recipe: RecipeRow): StepTemplate[] {
     const heatOf = { low: 2, medium: 5, high: 8 } as const;
     return recipe.userSteps.map((s, i) => ({

@@ -180,10 +180,6 @@ export class AuthoringService {
       return 'rejected';
     }
     const steps = this.recipes.structureUserSteps(r);
-    const ingredients = (await this.recipesRepo.ingredientsFor([recipeId])).get(recipeId) ?? [];
-    if (steps[0]) {
-      steps[0].ingredients = ingredients.map((i) => ({ ingredientId: i.ingredientId, prep: i.prep, value: i.value, unit: i.unit }));
-    }
     await this.db.transaction(async (tx) => {
       await this.recipesRepo.update(tx, recipeId, { status: 'published', publishedAt: new Date(), steps });
       await this.outbox.record(tx, 'recipe.published', { userId: r.authorId!, recipeId });

@@ -12,8 +12,15 @@ import { CUISINES } from '../../core/domain/catalog.js';
 export const MAX_OPTIONS = 2;
 const SPARE = 3;
 const SEARCH_POOL = 60;
+/** «Explorar» se va llenando hasta aquí, con una tanda (≤ 2 recetas, una llamada) por visita. */
+export const EXPLORE_TARGET = 24;
+const EXPLORE_COOLDOWN_MS = 10 * 60_000;
+const EXPLORE_DAILY_CALLS = 12;
 
 const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Dice si algo con esos alérgenos y banderas choca con la persona. */
+export type Avoid = (f: { allergens: string[]; dietFlags: string[] }) => boolean;
 
 const rawText = (d: RawRecipeDoc) => [...(d.ingredients ?? []), ...(d.ner ?? [])].join(' | ');
 export const libraryRecipeId = (sourceId: number) => `rcp_lib_${sourceId}`;
@@ -33,6 +40,22 @@ export class RecipeLibraryService {
     private readonly log: FastifyBaseLogger,
   ) {}
 
+  private lastGrowth = 0;
+  private growth = { day: '', calls: 0 };
+
+  /** Al abrir «Explorar»: agrega un par de recetas en segundo plano, sin gastar la cuota que usa el chef. */
+  growForExplore(avoid: Avoid, now = Date.now()): Promise<number> | null {
+    const day = new Date(now).toISOString().slice(0, 10);
+    if (this.growth.day !== day) this.growth = { day, calls: 0 };
+    if (!this.estimator || now - this.lastGrowth < EXPLORE_COOLDOWN_MS || this.growth.calls >= EXPLORE_DAILY_CALLS) return null;
+    this.lastGrowth = now;
+    this.growth.calls++;
+    return this.importBatch(EXPLORE_TARGET, avoid).catch((err: unknown) => {
+      this.log.warn({ err }, 'explorar: no se pudo agregar recetas');
+      return 0;
+    });
+  }
+
   get enabled() {
     return this.estimator !== null;
   }
@@ -41,7 +64,7 @@ export class RecipeLibraryService {
    * Hasta dos opciones distintas con esos ingredientes (en inglés). `avoid` descarta, antes de gastar una llamada, lo
    * que choca con la persona. Devuelve ids de recetas.
    */
-  async forRequest(opts: { ingredients: string[]; avoid: (f: { allergens: string[]; dietFlags: string[] }) => boolean; excludeRecipeIds: string[] }): Promise<string[]> {
+  async forRequest(opts: { ingredients: string[]; avoid: Avoid; excludeRecipeIds: string[] }): Promise<string[]> {
     if (!this.estimator) return [];
     const terms = [...new Set(opts.ingredients.map((t) => t.toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/ +/g, ' ').trim()).filter((t) => t.length > 1))].slice(0, 5);
     if (terms.length === 0) return [];
@@ -71,13 +94,13 @@ export class RecipeLibraryService {
   }
 
   /** Importa una tanda mientras haya menos de `target` recetas de la biblioteca. Devuelve cuántas entraron. */
-  async importBatch(target: number): Promise<number> {
+  async importBatch(target: number, avoid: Avoid = () => false): Promise<number> {
     if (!this.estimator) return 0;
     const room = target - (await this.repo.countLibrary());
     if (room <= 0) return 0;
     const sampled = await this.library.sample(MAX_OPTIONS * SPARE);
     const known = new Set((await this.repo.byIds(sampled.map((d) => libraryRecipeId(d._id)))).map((r) => r.id));
-    const docs = sampled.filter((d) => !known.has(libraryRecipeId(d._id))).slice(0, Math.min(MAX_OPTIONS, room));
+    const docs = sampled.filter((d) => !known.has(libraryRecipeId(d._id)) && !avoid(factsIn(rawText(d)))).slice(0, Math.min(MAX_OPTIONS, room));
     if (docs.length === 0) return 0;
     const estimated = await this.estimator.estimate(docs);
     let added = 0;
@@ -117,7 +140,7 @@ export class RecipeLibraryService {
         timeMax: e.minutes,
         baseServings: e.servings,
         difficulty: e.difficulty,
-        userSteps: e.steps.map((text) => ({ text })),
+        userSteps: e.steps.map((st) => ({ text: st.text, ingredientIds: st.uses.flatMap((k) => ids[k] ?? []) })),
         nutritionPerServing: e.perServing,
         nutritionStatus: 'estimated',
         chefConsultable: { enabled: true, useMyStyle: false, suggestSubstitutes: true },

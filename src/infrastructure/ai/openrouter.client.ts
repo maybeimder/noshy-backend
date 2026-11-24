@@ -31,7 +31,8 @@ export class OpenRouterClient {
     for (const model of this.models) {
       const started = performance.now();
       const left = until - started;
-      if (left <= 0) break;
+      // Con casi nada de tiempo solo se gastaría una petición de la cuota.
+      if (left < this.timeoutMs / 10) break;
       try {
         const out = await this.ask(model, messages, temperature, Math.min(this.timeoutMs, left));
         this.log.info({ model, ms: Math.round(performance.now() - started) }, 'openrouter');

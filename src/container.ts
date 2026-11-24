@@ -86,8 +86,8 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   const media = new MediaService(repos.media, providers.storage);
   // recipes
   const recipes = new RecipesService(db, repos.recipes, repos.pantry, repos.shopping, repos.chef, catalog, preferences, repos.users, outbox, env.SHARE_BASE_URL);
-  const recommendations = new RecommendationsService(repos.recipes, recipes, repos.cooking, repos.chef, log);
   const recipeLibrary = new RecipeLibraryService(db, new RecipeLibraryRepository(mongo.rawRecipes), repos.recipes, catalog, providers.recipeEstimator, log);
+  const recommendations = new RecommendationsService(repos.recipes, recipes, repos.cooking, repos.chef, log, recipeLibrary);
   const nutrition = new NutritionService(repos.recipes, catalog, providers.nutritionEstimator);
   // pantry, receipts, shopping, menus
   const pantry = new PantryService(db, repos.pantry, catalog, recommendations, outbox);

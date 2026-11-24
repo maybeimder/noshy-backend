@@ -60,7 +60,7 @@ export class CookingService {
     const r = await this.recipes.resolvedFor(userId, input.recipeId, input.servings, input.adaptationId ?? null);
     if (!r.evaluated.evaluation.compatibility.ok)
       throw Errors.unprocessable('RECIPE_NOT_COMPATIBLE', 'Esta receta choca con tus restricciones y no la pudimos adaptar.', { conflicts: r.evaluated.evaluation.compatibility.conflicts });
-    const steps = this.recipes.cookingSteps(r.recipe, r.adaptation, r.factor);
+    const steps = this.recipes.cookingSteps(r.recipe, r.rows, r.adaptation, r.factor);
     const session = await this.db.transaction(async (tx) => {
       const s = await this.repo.insert(tx, {
         id: newId('cookingSession'),

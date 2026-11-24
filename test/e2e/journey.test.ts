@@ -522,6 +522,8 @@ describe('recorrido completo', () => {
       const cook = await api.post('/me/cooking-sessions', { recipeId: id, servings: 2 });
       expect(cook.body.data.steps[0].subSteps[0].timerSeconds).toBe(900);
       expect(cook.body.data.steps[0].ingredients[0].quantity.display).toBe('125 g');
+      // Mise en place: cada paso con lo suyo, no todo en el primero.
+      expect(cook.body.data.steps.map((st: any) => st.ingredients.map((i: any) => i.ingredientId))).toEqual([['ing_lentils', 'ing_garlic'], ['ing_chickpeapasta', 'ing_tomato']]); // el espagueti, ya sustituido
       await api.post(`/me/cooking-sessions/${cook.body.data.id}/abandon`, { atStepIndex: 0, reason: 'later' });
     });
 

@@ -39,3 +39,9 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 
 - Las tarjetas y el detalle de receta traen `nutritionEstimated: boolean`: `true` si los macros los estimó un modelo. Conviene mostrarlo («≈ 620 kcal»).
 - Las recetas de la biblioteca no cruzan ingredientes con el catálogo: su `pantryMatch` suele ser `0/N`, mejor no mostrarlo cuando `nutritionEstimated` es `true`.
+
+## 4. Mise en place y Explorar
+
+- **Ingredientes por paso:** `GET /recipes/{id}` trae `steps[].ingredients` (`ingredientId, label, prep, quantity, inPantry`), y `steps[].ingredients` de la sesión de cocina ahora viene lleno en todas las recetas (la pantalla de cocina ya lo pinta en «Para este paso»). Puede venir `[]` si el paso no usa nada nuevo.
+- **Editor de recetas (opcional):** `PATCH /me/recipes/{id}` acepta `steps[].ingredientIds`. Sin eso, el backend lo deduce del texto.
+- **Explorar:** `GET /me/recommendations` sin `slot`, `usingIngredientIds` ni `source=pantry` devuelve el recetario completo: comunidad, Noshy y biblioteca intercaladas, sin filtrar por el tiempo preferido (solo `maxMinutes` si se manda). `reason.label` dice «De la comunidad» o «Recetario».
