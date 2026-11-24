@@ -127,7 +127,10 @@ src/
 
 ### Buscador de ingredientes
 
-`GET /catalog/ingredients/search` (despensa, lista de compras, crear receta) recomienda desde `products_slim` en Mongo (base `MONGO_FOOD_DB`, por defecto `food`; el usuario de `MONGO_URL` necesita rol `read` sobre ella), ordenado por relevancia (`modules/catalog/food-ranking.ts`). Los ingredientes base que coinciden van primero, porque son los que usan las recetas. Los alimentos de Mongo llegan con id `food_<_id>`; al agregarlos, `CatalogService.ensure` los copia a `ingredients` en Postgres. Si Mongo no responde en 2,5 s, el buscador sigue con lo que hay en Postgres.
+`GET /catalog/ingredients/search` (despensa, lista de compras, crear receta) recomienda desde `products_slim` en Mongo (base `MONGO_FOOD_DB`, por defecto `food`; el usuario de `MONGO_URL` necesita rol `read` sobre ella), ordenado por relevancia (`modules/catalog/food-ranking.ts`). Los ingredientes base que coinciden van primero, porque son los que usan las recetas. Los alimentos de Mongo llegan con id `food_<_id>`; al agregarlos, `CatalogService.ensure` los copia a `ingredients` en Postgres. Si Mongo no responde en 2,5 s, el buscador sigue con lo que hay en Postgres (y no reintenta en 10 s). Si sobra espacio, completa con sinónimos (`modules/catalog/synonyms.ts`).
+
+- `POST /me/pantry/items` acepta `{ text }` en vez de `{ ingredientId }` para lo que no está en el catálogo: crea un ingrediente `txt_…` que no sale en las búsquedas de otros.
+- `GET /catalog/ingredients/:ingredientId/products?storeId=` lista los productos de un ingrediente base; `price` es `{ amount, currency }`, o `null` si esa tienda no lo vende. Sin `storeId`, el precio más bajo.
 
 ## Event driven
 

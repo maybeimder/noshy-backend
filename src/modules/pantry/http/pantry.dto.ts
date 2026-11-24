@@ -12,12 +12,16 @@ export const PantryListQuery = Page.extend({
   sort: z.enum(['recent', 'expiresOn', 'name']).optional(),
 });
 export const PantryItemParams = z.object({ itemId: z.string().min(3).max(64) });
-export const PantryAddBody = z.object({
-  ingredientId: z.string().min(3).max(64),
-  productId: z.string().min(3).max(64).optional(),
-  quantity: QuantityInput.optional(),
-  storage: Storage.optional(),
-});
+/** Del catálogo (`ingredientId`) o, si no está, escrito a mano (`text`). Uno de los dos. */
+export const PantryAddBody = z
+  .object({
+    ingredientId: z.string().min(3).max(64).optional(),
+    text: z.string().trim().min(2).max(60).regex(/\p{L}/u, 'Escribe el nombre del ingrediente').optional(),
+    productId: z.string().min(3).max(64).optional(),
+    quantity: QuantityInput.optional(),
+    storage: Storage.optional(),
+  })
+  .refine((v) => (v.ingredientId === undefined) !== (v.text === undefined), { message: 'Manda ingredientId o text, solo uno', path: ['ingredientId'] });
 export const PantryPatchBody = z
   .object({ remainingPct: z.number().int().min(0).max(100), storage: Storage, expiresOn: IsoDate })
   .partial()

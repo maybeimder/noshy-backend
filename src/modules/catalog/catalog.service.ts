@@ -1,7 +1,9 @@
 import type { CatalogRepository, DishRow, IngredientRow, ProductRow, StoreRow, SubstituteRow } from './catalog.repository.js';
 import type { FoodRepository } from './food.repository.js';
-import { foodIdOf, ingredientFromFood, isFoodIngredientId } from './food-ingredient.js';
+import { foodIdOf, ingredientFromFood, ingredientFromText, isBaseIngredientId, isFoodIngredientId, isTextIngredientId } from './food-ingredient.js';
+import { normalizeText } from './food-text.js';
 import { AppError } from '../../core/shared/errors.js';
+import { cop } from '../../core/shared/money.js';
 import { quantity, toGrams, type Quantity, type Unit } from '../../core/domain/quantity.js';
 import type { IngredientFacts, SubstituteRule } from '../../core/domain/restrictions.js';
 import type { IngredientNutrition } from '../../core/domain/nutrition.js';
@@ -78,10 +80,10 @@ export class CatalogService {
    * Los desconocidos se ignoran: cada servicio los valida como siempre.
    */
   async ensure(ids: string[]): Promise<void> {
-    const missing = [...new Set(ids)].filter((id) => isFoodIngredientId(id) && !this.hasIngredient(id));
+    const missing = [...new Set(ids)].filter((id) => (isFoodIngredientId(id) || isTextIngredientId(id)) && !this.hasIngredient(id));
     if (missing.length === 0) return;
     const stored = await this.repo.ingredientsByIds(missing);
-    const toImport = missing.filter((id) => !stored.some((i) => i.id === id));
+    const toImport = missing.filter((id) => isFoodIngredientId(id) && !stored.some((i) => i.id === id));
     if (toImport.length) {
       const docs = await this.foods.byIds(toImport.map(foodIdOf)).catch((cause: unknown) => {
         throw Object.assign(new AppError(503, 'FOOD_CATALOG_UNAVAILABLE', 'El catálogo de alimentos no responde. Intenta de nuevo.'), { cause });
@@ -92,9 +94,26 @@ export class CatalogService {
         stored.push(...rows);
       }
     }
+    await this.remember(stored);
+  }
+
+  /** Ingrediente para un texto libre: el base si se llama igual («arroz» → Arroz); si no, uno creado con ese texto. */
+  async ensureText(text: string): Promise<string> {
+    const key = normalizeText(text.trim().replace(/\s+/g, ' '));
+    const base = this.s.ingredients.find((i) => isBaseIngredientId(i.id) && normalizeText(i.label) === key);
+    if (base) return base.id;
+    const row = ingredientFromText(text);
+    if (!this.hasIngredient(row.id)) {
+      await this.repo.insertIngredients([row]);
+      await this.remember([row]);
+    }
+    return row.id;
+  }
+
+  private async remember(rows: IngredientRow[]) {
     // Una recarga en curso pudo leer antes del insert: se espera para no perder los nuevos.
     if (this.loading) await this.loading;
-    for (const i of stored) {
+    for (const i of rows) {
       if (this.s.ingById.has(i.id)) continue;
       this.s.ingById.set(i.id, i);
       this.s.ingredients.push(i);
@@ -170,7 +189,7 @@ export class CatalogService {
   search(q: string, limit: number) {
     const needle = q.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
     return this.s.ingredients
-      .filter((i) => !isFoodIngredientId(i.id) && i.searchText.includes(needle))
+      .filter((i) => isBaseIngredientId(i.id) && i.searchText.includes(needle))
       .sort((a, b) => Number(!a.searchText.startsWith(needle)) - Number(!b.searchText.startsWith(needle)) || a.label.localeCompare(b.label))
       .slice(0, limit);
   }
@@ -192,6 +211,17 @@ export class CatalogService {
 
   priceAt(productId: string, storeId: string): number | null {
     return this.s.price.get(`${productId}|${storeId}`) ?? null;
+  }
+
+  /** Productos de un ingrediente con su precio en la tienda (sin tienda: el más barato), del más barato al más caro. */
+  productOptions(ingredientId: string, storeId?: string) {
+    const stores = storeId ? [storeId] : this.s.stores.map((s) => s.id);
+    return this.productsFor(ingredientId)
+      .map((p) => {
+        const prices = stores.map((s) => this.priceAt(p.id, s)).filter((x): x is number => x !== null);
+        return { id: p.id, label: p.label, brand: p.brand, packLabel: p.packLabel, price: prices.length ? cop(Math.min(...prices)) : null };
+      })
+      .sort((a, b) => (a.price?.amount ?? Infinity) - (b.price?.amount ?? Infinity) || a.label.localeCompare(b.label));
   }
 
   /** Producto más barato de un ingrediente en una tienda. */

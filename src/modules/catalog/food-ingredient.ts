@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { FoodDoc } from '../../infrastructure/database/mongo/collections.js';
 import { CATEGORY_LABELS } from '../../core/domain/catalog.js';
 import type { Unit } from '../../core/domain/quantity.js';
@@ -9,11 +10,16 @@ import { normalizeText } from './food-text.js';
  * (despensa, lista, recetas) apunta a un ingrediente, así que el alimento elegido se copia a Postgres con este formato.
  */
 const PREFIX = 'food_';
+const TEXT_PREFIX = 'txt_';
 /** `ingredientId` admite 64 caracteres en los DTO. */
 const MAX_ID = 64;
 
 export const foodIngredientId = (foodId: string): string => `${PREFIX}${foodId}`;
 export const isFoodIngredientId = (id: string): boolean => id.startsWith(PREFIX) && id.length > PREFIX.length && id.length <= MAX_ID;
+/** Ingrediente propio de Noshy: el que usan las recetas, los sustitutos y los precios. */
+export const isBaseIngredientId = (id: string): boolean => id.startsWith('ing_');
+/** Escrito a mano por alguien; no sale en las búsquedas de los demás. */
+export const isTextIngredientId = (id: string): boolean => id.startsWith(TEXT_PREFIX);
 export const foodIdOf = (ingredientId: string): string => ingredientId.slice(PREFIX.length);
 
 export const foodName = (d: FoodDoc): string => (d.displayName ?? d.name).trim();
@@ -240,5 +246,23 @@ export function ingredientFromFood(d: FoodDoc): IngredientRow {
     ...units(d),
     isBasic: s.categoryId === 'spices',
     searchText: normalizeText(label),
+  };
+}
+
+/**
+ * Ingrediente de texto libre. El id sale del texto: escribir lo mismo da el mismo ingrediente.
+ * Alérgenos, dieta y lugar se deducen del texto igual que con un producto.
+ */
+export function ingredientFromText(text: string): IngredientRow {
+  const clean = text.trim().replace(/\s+/g, ' ');
+  const label = clean.charAt(0).toLocaleUpperCase('es') + clean.slice(1);
+  return {
+    ...ingredientFromFood({ _id: '', name: label, search: '' }),
+    id: `${TEXT_PREFIX}${createHash('sha256').update(label).digest('hex').slice(0, 24)}`,
+    defaultUnit: 'unit',
+    allowedUnits: ['unit', 'g', 'kg', 'ml', 'l', 'cup', 'tbsp', 'tsp'],
+    gramsPerUnit: {},
+    unitLabel: null,
+    typicalPack: { value: 1, unit: 'unit', label: '1 und' },
   };
 }

@@ -19,6 +19,12 @@ Probado con una sesión real: `GET /catalog/ingredients/search` responde bien (2
 
 ---
 
+**Estado en el backend:**
+
+- **Catálogo:** la búsqueda sale de `products_slim` (Mongo, ~7.6k alimentos) más sinónimos («palta» → aguacate, «cereal» → hojuelas de maíz).
+- **Texto libre:** `POST /me/pantry/items` con `{ text, quantity?, storage? }` (2–60 caracteres, sin `ingredientId`). Responde el mismo `PantryItem`, con `ingredientId: "txt_…"`. Unidades: `unit, g, kg, ml, l, cup, tbsp, tsp`. Si el texto es exactamente el nombre de un ingrediente base («arroz»), usa ese.
+- **Productos:** `GET /catalog/ingredients/{ingredientId}/products?storeId=` → `{ id, label, brand, packLabel, price }[]`, con `price: { amount, currency } | null`. Los `food_…` y `txt_…` devuelven `[]`.
+
 ## 2. Subida de fotos en producción (23 nov 2026)
 
 Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la `uploadUrl` firmada apunta a `http://localhost:3000/api/v1/storage/upload?...`. El navegador intenta subir la foto a la máquina del usuario y falla con «Failed to fetch». No se puede subir ninguna foto: portada de receta, «Sube tu versión» al terminar de cocinar ni avatar.
@@ -26,3 +32,5 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 - **Causa:** `PUBLIC_BASE_URL` no está definida en el servidor, y `providers.factory.ts` la usa para firmar (`${PUBLIC_BASE_URL}/api/v1`).
 - **Arreglo:** definir `PUBLIC_BASE_URL=https://api.noshy.javila.dev` en el `.env` del despliegue y reiniciar la API.
 - **Verificar después:** que `PUT /api/v1/storage/upload` acepte el cuerpo binario con `Content-Type: image/jpeg|png|webp|heic` (parser de Fastify) y responda a la consulta CORS desde el dominio del front; y que `publicUrl()` devuelva el mismo dominio, porque si no las fotos subidas tampoco se verán.
+
+**Estado en el backend:** con tests, el `PUT` acepta jpeg, png, webp y heic, responde a CORS y `publicUrl()` usa el mismo dominio. Falta definir `PUBLIC_BASE_URL` en el `.env` del servidor.
