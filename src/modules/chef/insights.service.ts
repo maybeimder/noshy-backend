@@ -99,12 +99,13 @@ export class InsightsService {
     signals
       .filter((s) => (s.kind === 'brandPurchased' || s.kind === 'brandSwapped') && s.brand)
       .forEach((s) => brandEvents.set(s.brand!, (brandEvents.get(s.brand!) ?? new Set()).add(s.eventId)));
-    const brands = [...brandEvents].filter(([, ev]) => ev.size >= 3).sort((a, b) => b[1].size - a[1].size).slice(0, 2);
+    const brands = [...brandEvents].filter(([, ev]) => ev.size >= 3).sort((a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0])).slice(0, 2);
     if (brands.length) {
       const receipts = new Set(brands.flatMap(([, ev]) => [...ev])).size;
       out.push({
         userId,
-        key: `brands:${brands.map(([b]) => b).join('|')}`,
+        // Sin depender del orden: si una pasa a la otra es el mismo aprendizaje, y un rechazo lo sigue siendo.
+        key: `brands:${brands.map(([b]) => b).sort().join('|')}`,
         text: `Compras ${brands.map(([b]) => b).join(' y ')} con frecuencia`,
         confidence: Math.min(0.95, receipts / (receipts + 2)),
         evidence: { count: receipts, kind: 'receipts', label: `${receipts} facturas` },

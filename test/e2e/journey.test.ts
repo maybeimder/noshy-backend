@@ -443,10 +443,14 @@ describe('recorrido completo', () => {
       await drain(app);
       const list = await api.get('/me/chef/insights');
       const brands = list.body.data.find((i: any) => i.text.startsWith('Compras'));
-      expect(brands).toMatchObject({ text: 'Compras Kikes y Alpina con frecuencia', evidence: { kind: 'receipts', count: 3, label: '3 facturas' } });
+      expect(brands).toMatchObject({ text: 'Compras Alpina y Kikes con frecuencia', evidence: { kind: 'receipts', count: 3, label: '3 facturas' } });
       const vote = await api.post(`/me/chef/insights/${brands.id}/feedback`, { vote: 'down' });
       expect(vote.body.data).toMatchObject({ status: 'rejected', userVote: 'down' });
       expect((await api.get('/me/chef/insights')).body.data.find((i: any) => i.id === brands.id)).toBeUndefined();
+      // Una compra más de Kikes cambia el orden, no el aprendizaje: lo rechazado no vuelve.
+      await app.container.outbox.publish('receipt.parsed', { userId: s.userId ?? (await me()), receiptId: 'rct_fake3', storeId: 'exito', purchasedAt: null, ingredientIds: [], brands: ['Kikes'] });
+      await drain(app);
+      expect((await api.get('/me/chef/insights')).body.data.filter((i: any) => i.text.startsWith('Compras'))).toEqual([]);
       // Todo queda en el event store, con versión dentro del stream del usuario.
       const parsed = await app.container.events.store.readAll({ types: ['receipt.parsed'] });
       expect(parsed.length).toBeGreaterThanOrEqual(3);
