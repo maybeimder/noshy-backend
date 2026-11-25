@@ -11,18 +11,18 @@ Fastify + TypeScript, Postgres (Drizzle) para lo transaccional y Mongo para lo d
 
 ```powershell
 pnpm install
-Copy-Item .env.example .env     # JWT_SECRET (32+ caracteres), MONGO_URL del homelab y, si quieres chef con IA, OPENROUTER_API_KEY
+Copy-Item .env.example .env     # JWT_SECRET (32+ caracteres), MONGO_URL y, para el chef con IA, OPENROUTER_API_KEY
 pnpm infra:up                   # Postgres (5433) + RabbitMQ (5672, panel en :15672). Mongo: el del homelab
 pnpm dev                        # http://localhost:3000  ·  docs en /docs
 ```
 
-Con `RUN_WORKERS=true` (el valor de `.env.example`) `pnpm dev` hace todo en un proceso: publica en RabbitMQ, consume y corre los observers. Para separarlo como en producción, pon `RUN_WORKERS=false` y corre `pnpm dev:worker` en otra terminal.
+Con `RUN_WORKERS=true` (el valor de `.env.example`) `pnpm dev` hace todo en un proceso: publica en RabbitMQ, consume y corre los observers. Para separarlo como en producción: `RUN_WORKERS=false` y `pnpm dev:worker` en otra terminal.
 
-Al arrancar, la API aplica las migraciones (`drizzle/*.sql`) y, si la base está vacía, carga el catálogo: tiendas, platos, ingredientes, productos, precios y recetas. Se desactiva con `MIGRATE_ON_START=false` y `SEED_ON_START=false`. También están `pnpm db:migrate` y `pnpm db:seed`; ojo: `db:seed` reescribe likes y ratings del catálogo.
+Al arrancar, la API aplica las migraciones (`drizzle/*.sql`) y, si la base está vacía, carga el catálogo: tiendas, platos, ingredientes, productos, precios y recetas. Se desactiva con `MIGRATE_ON_START=false` y `SEED_ON_START=false`. También existen `pnpm db:migrate` y `pnpm db:seed` (`db:seed` reescribe likes y ratings del catálogo).
 
 ## Despliegue con Docker (homelab / server)
 
-Igual que antes: todo en contenedores en **modo dev** (`tsx watch`), con `api` como primer servicio para `web-deploy` y todo escuchando en `127.0.0.1`.
+Todo corre en contenedores en **modo dev** (`tsx watch`), con `api` como primer servicio para `web-deploy` y todo escuchando en `127.0.0.1`.
 
 ```bash
 cp .env.example .env    # JWT_SECRET de 32+ caracteres y OPENROUTER_API_KEY
@@ -32,7 +32,7 @@ docker compose up -d --build
 - Servicios: `api` (HTTP, migra, carga el catálogo y publica en RabbitMQ), `worker` (consume `noshy.events.observers` → observers, relay de respaldo y scheduler), `postgres` (host 5433) y `rabbitmq` (host 5672, panel en http://localhost:15672, usuario `noshy`).
 - `./src` y `./drizzle` están montados: tras un `git pull`, `tsx watch` recarga solo. Si cambian dependencias o el Dockerfile, el workflow `deploy-dev` reconstruye la imagen.
 - Archivos (facturas, fotos, exportaciones) viven en el volumen `noshy-storage`; Postgres en `noshy-postgres-data`; RabbitMQ en `noshy-rabbitmq-data`.
-- **Mongo no va en el compose**: se usa el del homelab (`MONGO_URL` en `.env`, ej. `mongodb://…@192.168.1.10:27017/food?authSource=food`). El backend usa la base de la URL (`food`) salvo que definas `MONGO_DB`; sus colecciones (`chef_threads`, `chef_messages`, `cooking_events`, `user_signals`, `insights`, `receipt_scans`) no chocan con las del catálogo (`products_slim`, `recipes_raw`). Desde los contenedores, `192.168.1.10` se alcanza por la red local, así que Mongo debe escuchar en esa IP y no solo en `127.0.0.1`.
+- **Mongo no va en el compose**: se usa el del homelab (`MONGO_URL` en `.env`, ej. `mongodb://…@192.168.1.10:27017/food?authSource=food`). El backend usa la base de la URL (`food`) salvo que se defina `MONGO_DB`; sus colecciones (`chef_threads`, `chef_messages`, `cooking_events`, `user_signals`, `insights`, `receipt_scans`) no chocan con las del catálogo (`products_slim`, `recipes_raw`). Desde los contenedores, `192.168.1.10` se alcanza por la red local, así que Mongo debe escuchar en esa IP y no solo en `127.0.0.1`.
 - Respaldo: `docker exec noshy-postgres pg_dump -U noshy noshy > backup.sql` (Mongo se respalda donde vive, en el homelab).
 
 | Script | Qué hace |
@@ -57,7 +57,7 @@ Usa `TEST_DATABASE_URL` (por defecto `postgres://postgres@localhost:5432/noshy_t
 
 ## Estructura
 
-Por módulos, como el backend anterior. Cada módulo agrupa todo lo suyo y expone su API pública en `index.ts`;
+Por módulos. Cada módulo agrupa todo lo suyo y expone su API pública en `index.ts`;
 las dependencias entre módulos se arman en `container.ts`.
 
 ```
@@ -68,6 +68,7 @@ src/
     <módulo>.model.ts         tablas Drizzle del módulo (fuente de las migraciones)
     <módulo>.providers.ts     servicios externos del módulo (OAuth, correo, OCR, motor del chef, moderación, push)
     http/                     <módulo>.routes.ts · .controller.ts · .dto.ts (zod) · .middleware.ts
+    commands/                 <módulo>.commands.ts (handlers del bus de comandos)
     events/                   <módulo>.observers.ts (GoF Observer: cómo reacciona a eventos de otros módulos)
     index.ts                  API pública del módulo
 
@@ -90,6 +91,7 @@ src/
     shopping/       shopping.model, shopping.repository, shopping.service  · http/ events/
 
   core/
+    commands/                 CommandBus: un handler por comando, middlewares
     events/                   catálogo de eventos, DomainEvent + DomainEventFactory, event store, outbox + relay,
                               Subject/Observer, ledger de idempotencia, replay
     domain/                   reglas puras y testeables: nutrición, restricciones, cantidades, franjas, racha, puntaje
@@ -97,6 +99,7 @@ src/
   infrastructure/
     config/env.ts             variables de entorno validadas con zod
     database/                 postgres (cliente, migrador, schema.ts que junta los modelos), mongo (cliente, colecciones), seed
+    command-bus/              registro de handlers y middleware de log
     event-bus/                EventTransportFactory, register-observers, rabbitmq/ (topología, conexión, publisher, consumer)
     http/                     server.ts (Fastify, /health, /docs), routes.ts, middlewares/ (errores, idempotencia, zona horaria)
     ai/openrouter.client.ts   cliente de OpenRouter
@@ -143,8 +146,10 @@ src/
 
 ## Event driven
 
+Documentación con el código y su ubicación: [`docs/`](docs/README.md).
+
 ```
- caso de uso ──misma transacción──► tablas de estado
+ caso de uso (handler de un comando) ──misma transacción──► tablas de estado
       │                              + event_store (append-only, versión por usuario)
       │                              + outbox (entrega pendiente)
       ▼
@@ -161,10 +166,11 @@ src/
                                                                  pueden emitir más eventos)
 ```
 
+- **Bus de comandos** (`CommandBus`): toda ruta que escribe despacha un comando (`this.c.commands.execute('community.addComment', …)`); su único handler llama al service. Es síncrono y en proceso.
 - **Event store** (`event_store`): cada evento queda con `streamId` (el usuario), `version` (1, 2, 3… dentro del stream) y `globalPosition`. Un trigger impide los UPDATE. Es la fuente para reconstruir proyecciones (`pnpm events:replay`) y para «Descargar mis datos» (sección `activity`). Al borrar la cuenta se purga el stream y queda solo la lápida `user.deleted`.
 - **Transactional outbox** (`outbox`): se escribe en la misma transacción que el evento y el cambio de estado. Un evento existe y se entrega **si y solo si** la transacción se confirmó. Para versionar sin choques, `append` toma un advisory lock por stream (`pg_advisory_xact_lock`), con `lock_timeout` de 10 s.
 - **Relay**: la API publica apenas confirma (kick) y el worker barre lo que quede (poll). Si RabbitMQ está caído, los eventos esperan en el outbox con backoff y salen cuando vuelve; tras `OUTBOX_MAX_ATTEMPTS` quedan `dead` para revisión.
-- **RabbitMQ**: misma topología del backend anterior (`noshy.events`, `noshy.events.observers`, `noshy.dlx`, `noshy.dead-letters`) más las colas de espera. Publisher confirms, mensajes persistentes, reconexión automática (vuelve a declarar la topología y a suscribirse).
+- **RabbitMQ**: `noshy.events`, `noshy.events.observers`, `noshy.dlx`, `noshy.dead-letters` y las colas de espera. Publisher confirms, mensajes persistentes, reconexión automática (vuelve a declarar la topología y a suscribirse).
 - **GoF Observer**: `EventSubject` (uno por usuario, creado bajo demanda por `SubjectRegistry`) notifica a los `Observer` interesados y serializa los eventos del mismo usuario. Si un observer falla, se reintenta el mensaje y los que ya lo procesaron se lo saltan (`processed_events`). Los observers viven en `src/modules/<módulo>/events/` y extienden `EventObserver` (`this.on('tipo', handler)`).
 - **GoF Factory**: `DomainEventFactory` crea y rehidrata eventos (desde el store o desde el mensaje de RabbitMQ) y rechaza tipos desconocidos; `EventTransportFactory` elige RabbitMQ o en proceso; `ProviderFactory` elige storage, OCR, chef (OpenRouter o reglas), etc.
 - **Sin broker** (`EVENT_TRANSPORT=in-process` o sin `RABBITMQ_URL`): el relay notifica a los Subjects en el mismo proceso. Sirve para tests y para una sola máquina; en producción se avisa en el log.
@@ -200,15 +206,15 @@ src/
 - **Zona horaria:** `X-Timezone` en cada request; se guarda la última en `users.timezone` para los workers.
 - **Menú y lista:** el onboarding crea el menú por evento; la lista se arma desde el menú menos la despensa.
 
-## Proveedores enchufables (qué hay que conectar para producción)
+## Proveedores intercambiables
 
 | Puerto | Implementación incluida | Para producción |
 | --- | --- | --- |
 | `Storage` | `LocalStorage`: URLs firmadas con HMAC hacia `/api/v1/storage/upload` | S3/GCS con URL prefirmada (misma interfaz) |
 | `ReceiptParser` | `MockReceiptParser` (factura de ejemplo) · `none` | Servicio de OCR o modelo de visión |
-| `ChefEngine` | `LlmChefEngine` (OpenRouter, modelos gratis) si hay `OPENROUTER_API_KEY`: inventa recetas propias y responde dudas; si falla, cae a `RuleBasedChefEngine`, que cubre los flujos del diseño (ideas, otra idea, ¿qué compro?, más proteína, airfryer, congelar) | Ajustar prompt y modelos (`OPENROUTER_MODEL`) |
+| `ChefEngine` | `LlmChefEngine` (OpenRouter, modelos gratis) si hay `OPENROUTER_API_KEY`: inventa recetas propias y responde dudas; si falla, cae a `RuleBasedChefEngine`, que cubre los flujos fijos (ideas, otra idea, ¿qué compro?, más proteína, airfryer, congelar) | Ajustar prompt y modelos (`OPENROUTER_MODEL`) |
 | `Moderation` | Reglas básicas de spam | Servicio de moderación de texto e imágenes |
-| `OAuthVerifier` | Verifica idTokens de Google y Apple con sus JWKS | Configura `GOOGLE_CLIENT_IDS` y `APPLE_CLIENT_IDS` |
+| `OAuthVerifier` | Verifica idTokens de Google y Apple con sus JWKS | `GOOGLE_CLIENT_IDS` y `APPLE_CLIENT_IDS` |
 | `Notifier` | Registra en el log (respeta Ajustes › Notificaciones) | FCM / APNs |
 | `Mailer` | Registra en el log (código de verificación, exportación lista) | SES / Resend / SendGrid |
 | `NutritionEstimator` | Tabla de platos colombianos + recetas + ingredientes del catálogo | Modelo de lenguaje con la misma interfaz |
@@ -239,4 +245,3 @@ La referencia completa con esquemas está en `/docs`. Resumen:
 - Conectar los proveedores reales de producción: OCR de facturas, correo, push y S3/GCS.
 - Cambio de email desde Ajustes (hoy solo se editan nombre, apellido, género y foto).
 - Panel de operación para `noshy.dead-letters` y el outbox en `dead` (hoy se revisan desde el panel de RabbitMQ y con SQL).
-- Migrar el frontend: las rutas del backend anterior (`/food`, `/plans`, `/inventory`…) ya no existen; el mapa está en el contrato v0.3.
