@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gte, lte } from 'drizzle-orm';
 import type { Db, Executor } from '../../infrastructure/database/postgres/postgres.client.js';
 import { mealLogs } from '../../infrastructure/database/postgres/schema.js';
 
@@ -9,6 +9,10 @@ export class MealsRepository {
 
   async forDate(userId: string, localDate: string, exec: Executor = this.db): Promise<MealLogRow[]> {
     return exec.select().from(mealLogs).where(and(eq(mealLogs.userId, userId), eq(mealLogs.localDate, localDate))).orderBy(mealLogs.createdAt);
+  }
+
+  async between(userId: string, from: string, to: string): Promise<MealLogRow[]> {
+    return this.db.select().from(mealLogs).where(and(eq(mealLogs.userId, userId), gte(mealLogs.localDate, from), lte(mealLogs.localDate, to))).orderBy(mealLogs.createdAt);
   }
 
   async insert(exec: Executor, row: typeof mealLogs.$inferInsert) {

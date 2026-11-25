@@ -10,8 +10,13 @@ import { newId } from '../../core/shared/ids.js';
 import { addDays, isIsoDate, localDate, weekStart } from '../../core/shared/time.js';
 
 const MENU_SIZE = 5;
+/** Más que esto «generando» es que el proceso se cayó a medias. */
+const STUCK_MS = 2 * 60_000;
 
-/** Menú semanal: lo genera el observer `menus` con `onboarding.completed` y emite `menu.generated`. */
+/**
+ * Menú semanal. El primero lo genera el observer `menus` con `onboarding.completed`; los siguientes, la primera vez que
+ * se abre «Mi semana» en una semana nueva. Todos emiten `menu.generated`.
+ */
 export class MenusService {
   constructor(
     private readonly db: Db,
@@ -26,14 +31,25 @@ export class MenusService {
     if (!menu || menu.status === 'ready') return;
     try {
       await this.repo.update(this.db, menuId, { progress: { stage: 'dishes', percent: 40 } });
-      const ranked = await this.recommendations.ranked(userId, { slot: 'lunch' });
-      const picks = ranked.slice(0, MENU_SIZE).map((r) => r.e.recipe);
       const start = localDate(new Date(), tz);
+      const kept = await this.repo.entries(menuId);
+      // Almuerzos libres desde hoy, sin pisar lo que la persona ya había puesto.
+      const busy = new Set(kept.filter((e) => e.slot === 'lunch').map((e) => e.localDate));
+      const week = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+      const missing = Math.max(0, MENU_SIZE - week.filter((d) => busy.has(d)).length);
+      const free = week.filter((d) => !busy.has(d)).slice(0, missing);
+      const ranked = await this.recommendations.ranked(userId, { slot: 'lunch' });
+      // Primero lo que no estuvo en el último menú; si no alcanza, se repite.
+      const previous = new Set([...kept.map((e) => e.recipeId), ...(await this.repo.recentRecipeIds(userId, menuId))]);
+      const inMenu = new Set(kept.map((e) => e.recipeId));
+      const recipes = ranked.map((r) => r.e.recipe).filter((r) => !inMenu.has(r.id));
+      const picks = [...recipes.filter((r) => !previous.has(r.id)), ...recipes.filter((r) => previous.has(r.id))].slice(0, free.length);
       await this.repo.update(this.db, menuId, { progress: { stage: 'shoppingList', percent: 75 } });
       await this.db.transaction(async (tx) => {
+        if ((await this.repo.statusForUpdate(tx, menuId)) !== 'generating') return;
         await this.repo.insertEntries(
           tx,
-          picks.map((r, i) => ({ id: newId('menuEntry'), menuId, localDate: addDays(start, i), slot: 'lunch', recipeId: r.id, servings: 2 })),
+          picks.map((r, i) => ({ id: newId('menuEntry'), menuId, localDate: free[i]!, slot: 'lunch', recipeId: r.id, servings: 2 })),
         );
         await this.repo.update(tx, menuId, { status: 'ready', readyAt: new Date(), progress: { stage: 'shoppingList', percent: 100 } });
         await this.outbox.record(tx, 'menu.generated', { userId, menuId, weekStart: menu.weekStart, recipeIds: picks.map((r) => r.id) });
@@ -63,19 +79,59 @@ export class MenusService {
     const menu = await this.repo.byId(userId, menuId);
     if (!menu) throw Errors.notFound('Ese menú no existe.');
     if (menu.status !== 'failed') throw Errors.conflict('MENU_NOT_FAILED', 'El menú no falló.');
-    await this.repo.update(this.db, menuId, { status: 'generating', progress: { stage: 'restrictions', percent: 0 } });
-    void this.generate(userId, menuId, tz);
+    await this.repo.update(this.db, menuId, { status: 'generating', progress: { stage: 'restrictions', percent: 0 }, createdAt: new Date() });
+    this.generateInBackground(userId, menuId, tz);
+    return this.get(userId, menuId);
+  }
+
+  /** Si falla, queda en el estado `failed` del menú: no hay a quién más avisarle. */
+  private generateInBackground(userId: string, menuId: string, tz: string) {
+    void this.generate(userId, menuId, tz).catch(() => undefined);
+  }
+
+  /** Semana nueva: abre su menú y se trae lo que ya estaba puesto para esos días. */
+  private async openWeek(userId: string, tz: string, start: string): Promise<string> {
+    const opened = await this.db.transaction(async (tx) => {
+      await this.repo.lockUser(tx, userId);
+      const last = await this.repo.latest(userId, tx);
+      if (!last || last.weekStart >= start) return { id: last?.id ?? '', created: false };
+      const id = newId('menu');
+      await this.repo.create(tx, { id, userId, weekStart: start, status: 'generating', progress: { stage: 'restrictions', percent: 0 } });
+      await this.repo.moveEntries(tx, last.id, id, start);
+      return { id, created: true };
+    });
+    if (opened.created) this.generateInBackground(userId, opened.id, tz);
+    return opened.id;
+  }
+
+  /** «Armar otra semana»: cambia las recetas desde hoy; los días que ya pasaron se quedan. */
+  async regenerate(userId: string, menuId: string, tz: string) {
+    const [menu, latest] = await Promise.all([this.repo.byId(userId, menuId), this.repo.latest(userId)]);
+    if (!menu) throw Errors.notFound('Ese menú no existe.');
+    if (menu.id !== latest?.id) throw Errors.conflict('MENU_NOT_CURRENT', 'Ese menú es de otra semana.');
+    await this.db.transaction(async (tx) => {
+      await this.repo.lockUser(tx, userId);
+      if ((await this.repo.statusForUpdate(tx, menuId)) === 'generating') throw Errors.conflict('MENU_GENERATING', 'Tu chef ya está armando el menú.');
+      const removed = await this.repo.deleteEntriesFrom(tx, menuId, localDate(new Date(), tz));
+      await this.repo.update(tx, menuId, { status: 'generating', progress: { stage: 'restrictions', percent: 0 }, createdAt: new Date() });
+      for (const e of removed) await this.outbox.record(tx, 'menu.entry_removed', { userId, menuId, entryId: e.id, recipeId: e.recipeId });
+    });
+    this.outbox.kick();
+    this.generateInBackground(userId, menuId, tz);
     return this.get(userId, menuId);
   }
 
   // ---------- Mi semana ----------
 
-  /** Menú de la semana: tira de días con sus franjas. Si no hay menú esta semana, devuelve el último. */
+  /** Menú de la semana: tira de días con sus franjas. Si empezó otra semana, la abre. */
   async currentWeek(userId: string, tz: string) {
     const menu = await this.repo.latest(userId);
     if (!menu) throw Errors.notFound('Todavía no tienes menú. Termina el onboarding o pídele uno al chef.');
-    const base = await this.get(userId, menu.id);
     const start = weekStart(localDate(new Date(), tz));
+    let menuId = menu.id;
+    if (menu.weekStart < start) menuId = await this.openWeek(userId, tz, start);
+    else if (menu.status === 'generating' && Date.now() - menu.createdAt.getTime() > STUCK_MS) this.generateInBackground(userId, menuId, tz);
+    const base = await this.get(userId, menuId);
     const days = Array.from({ length: 7 }, (_, i) => addDays(start, i)).map((date) => ({
       date,
       entries: base.entries.filter((e) => e.date === date),

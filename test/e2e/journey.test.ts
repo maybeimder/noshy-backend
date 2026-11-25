@@ -471,9 +471,6 @@ describe('recorrido completo', () => {
       expect(noLactose.body.data.map((x: any) => x.recipe.id)).not.toContain('rcp_01ARROZPOLLO');
       const creators = await api.get('/community/creators');
       expect(creators.body.data.map((c: any) => c.firstName)).toEqual(expect.arrayContaining(['Valentina', 'Nicolás']));
-      const notVerified = await api.post('/community/recipes/rcp_01SOPAPOLLO/comments', { text: '¿Se puede congelar?' });
-      expect(notVerified.body.error.code).toBe('EMAIL_NOT_VERIFIED');
-      await app.container.pg.db.execute(sql`update users set email_verified = true where email = 'diana@correo.co'`);
       const ok = await api.post('/community/recipes/rcp_01SOPAPOLLO/comments', { text: '¿Se puede congelar?' });
       expect(ok.status).toBe(201);
       expect(ok.body.data.author.displayName).toBe('Diana');
@@ -533,7 +530,7 @@ describe('recorrido completo', () => {
 
     it('ingredientes: búsqueda marca choques con restricciones', async () => {
       const r = await api.get('/catalog/ingredients/search?q=crema');
-      expect(r.body.data.find((i: any) => i.id === 'ing_cream')).toMatchObject({ conflicts: [{ id: 'lactose', label: 'Lactosa' }], allowedUnits: ['ml', 'tbsp', 'cup'] });
+      expect(r.body.data.find((i: any) => i.id === 'ing_cream')).toMatchObject({ conflicts: [{ id: 'lactose', label: 'Lactosa' }], allowedUnits: ['ml', 'tbsp', 'cup'], otherUnits: ['g', 'kg', 'l', 'tsp'] });
       expect(r.body.data.find((i: any) => i.id === 'ing_coconutcream').conflicts).toEqual([]);
     });
 

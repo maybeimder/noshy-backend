@@ -1,3 +1,4 @@
+import { matchesText } from '../../core/shared/text-search.js';
 import type { RecipesRepository } from './recipes.repository.js';
 import { createHash } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
@@ -15,6 +16,8 @@ export type RecommendInput = {
   /** `library`: solo el recetario (recetas de la biblioteca). */
   source?: 'forYou' | 'pantry' | 'library';
   usingIngredientIds?: string[];
+  /** Palabras del título, la cocina, las etiquetas o los ingredientes. */
+  q?: string;
   maxMinutes?: number;
   excludeRecipeIds?: string[];
   limit?: number;
@@ -114,7 +117,7 @@ export class RecommendationsService {
     }
     if (input.source === 'pantry' || (total > 0 && have / total >= 0.6)) return { kind: 'pantry' as const, label: pantryReasonLabel(have, total) };
     if (input.anyTime && e.recipe.authorType === 'user') return { kind: 'forYou' as const, label: 'De la comunidad' };
-    if (input.anyTime && e.recipe.nutritionStatus === 'estimated') return { kind: 'forYou' as const, label: 'Recetario' };
+    if (input.anyTime && e.recipe.nutritionStatus === 'estimated') return { kind: 'forYou' as const, label: 'Biblioteca' };
     return { kind: 'forYou' as const, label: 'Para ti' };
   }
 
@@ -122,7 +125,8 @@ export class RecommendationsService {
     const limit = Math.min(input.limit ?? 3, 20);
     const offset = Number(decodeCursor(input.cursor)?.k ?? 0);
     const explored = this.isExplore(input) ? await this.explore(userId, input) : null;
-    const ranked = explored?.ranked ?? (await this.ranked(userId, input));
+    const found = explored?.ranked ?? (await this.ranked(userId, input));
+    const ranked = input.q ? found.filter(({ e }) => matchesText(input.q, e.recipe.title, e.recipe.cuisineLabel, ...e.recipe.tags, ...e.ingredients.map((i) => i.label))) : found;
     const pageRows = ranked.slice(offset, offset + limit);
     const flags = await this.recipesRepo.viewerFlags(userId, pageRows.map((r) => r.e.recipe.id));
     const data = pageRows.map(({ e }) => ({ ...this.recipes.card(e, flags.saved.has(e.recipe.id)), reason: this.reasonFor(e, explored ? { ...input, anyTime: true } : input) }));

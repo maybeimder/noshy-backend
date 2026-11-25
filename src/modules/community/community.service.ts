@@ -5,7 +5,9 @@ import type { UsersRepository } from '../auth/auth.repository.js';
 import type { RecipesService } from '../recipes/recipes.service.js';
 import type { CatalogService } from '../catalog/catalog.service.js';
 import type { Moderation } from './community.providers.js';
+import { contentReports } from './community.model.js';
 import { ALLERGIES, DIFFICULTIES, labelOf } from '../../core/domain/catalog.js';
+import { matchesText } from '../../core/shared/text-search.js';
 import { decodeCursor, encodeCursor } from '../../core/shared/cursor.js';
 import { Errors, field } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
@@ -27,25 +29,30 @@ export class CommunityService {
     private readonly outbox: Outbox,
   ) {}
 
-  async feed(userId: string, q: { filter?: string; cursor?: string; limit?: number }) {
+  async feed(userId: string, q: { filter?: string; q?: string; authorId?: string; cursor?: string; limit?: number }) {
     const limit = Math.min(q.limit ?? 10, 50);
     const ctx = await this.recipes.context(userId);
+    const following = new Set(await this.users.followeeIds(userId));
     const filters = [
       { id: 'trending', label: 'Tendencia', icon: 'flame' },
+      ...(following.size ? [{ id: 'following', label: 'Los que sigo' }] : []),
       ...ctx.prefs.restrictions.allergyIds.map((a) => ({ id: `${a}Free`, label: ALLERGIES.find((x) => x.id === a)?.label ?? a })),
       { id: 'highProtein', label: 'Alta proteína' },
     ];
     const filter = q.filter ?? 'trending';
-    if (!filters.some((f) => f.id === filter) && !ALLERGIES.some((a) => `${a.id}Free` === filter))
+    if (!filters.some((f) => f.id === filter) && filter !== 'following' && !ALLERGIES.some((a) => `${a.id}Free` === filter))
       throw Errors.validation([field('filter', 'INVALID_OPTION', 'Filtro desconocido.')]);
 
-    const all = await this.recipesRepo.communityPublished();
+    const published = await this.recipesRepo.communityPublished();
+    const all = published.filter((r) => (!q.authorId || r.authorId === q.authorId) && matchesText(q.q, r.title, r.cuisineLabel, r.authorName, ...r.tags));
     const evaluated = await this.recipes.evaluateMany(all, ctx);
     const recentLikes = await this.recipesRepo.likesSince(all.map((r) => r.id), new Date(Date.now() - 7 * 86_400_000));
     let rows = evaluated.map((e, i) => ({ e, r: all[i]! }));
     if (filter.endsWith('Free')) {
       const allergen = filter.slice(0, -4);
       rows = rows.filter(({ e }) => !e.ingredients.some((ing) => this.catalog.ingredient(ing.originalIngredientId)?.allergens.includes(allergen)));
+    } else if (filter === 'following') {
+      rows = rows.filter(({ r }) => r.authorId !== null && following.has(r.authorId));
     } else if (filter === 'highProtein') {
       rows = rows.filter(({ e }) => e.nutritionPerServing.proteinG >= HIGH_PROTEIN_G);
     }
@@ -76,6 +83,40 @@ export class CommunityService {
       })),
       meta: { nextCursor: offset + limit < rows.length ? encodeCursor({ k: offset + limit, id: 'offset' }) : null, limit, filters },
     };
+  }
+
+  async creator(userId: string, creatorId: string) {
+    const user = await this.users.findById(creatorId);
+    if (!user) throw Errors.notFound('Ese usuario no existe.');
+    const [recipes, followers, following] = await Promise.all([this.recipesRepo.countPublishedBy(creatorId), this.users.followerCount(creatorId), this.users.followeeIds(userId)]);
+    return {
+      id: user.id,
+      displayName: displayName(user.name, user.lastName),
+      initial: user.name.charAt(0).toUpperCase(),
+      avatarUrl: user.avatarUrl,
+      memberSince: user.createdAt.toISOString(),
+      stats: { recipes, followers },
+      following: following.includes(creatorId),
+      isMe: creatorId === userId,
+    };
+  }
+
+  /** El autor del comentario o el de la receta. */
+  async deleteComment(userId: string, commentId: string) {
+    const c = await this.recipesRepo.comment(commentId);
+    if (!c) throw Errors.notFound('Ese comentario no existe.');
+    if (c.userId !== userId && (await this.recipesRepo.byId(c.recipeId))?.authorId !== userId) throw Errors.forbidden('NOT_YOUR_COMMENT', 'Solo puedes borrar tus comentarios o los de tus recetas.');
+    await this.db.transaction((tx) => this.recipesRepo.deleteComment(tx, c));
+  }
+
+  /** Una denuncia por persona y contenido: repetirla no suma. */
+  async report(userId: string, input: { targetType: 'recipe' | 'comment'; targetId: string; reason: string }) {
+    const exists = input.targetType === 'recipe' ? await this.recipesRepo.byId(input.targetId) : await this.recipesRepo.comment(input.targetId);
+    if (!exists) throw Errors.notFound('Eso ya no está publicado.');
+    await this.db
+      .insert(contentReports)
+      .values({ id: newId('report'), reporterId: userId, ...input })
+      .onConflictDoNothing();
   }
 
   async creators(userId: string, limit = 10) {
@@ -124,7 +165,6 @@ export class CommunityService {
     const recipe = await this.recipes.getVisible(userId, recipeId);
     const user = await this.users.findById(userId);
     if (!user) throw Errors.unauthorized();
-    if (!user.emailVerified) throw Errors.forbidden('EMAIL_NOT_VERIFIED', 'Verifica tu email para comentar.');
     const review = await this.moderation.review({ text, imageKeys: [] });
     if (!review.approved) throw Errors.unprocessable('CONTENT_REJECTED', review.reason ?? 'El comentario no pasó la moderación.');
     const c = await this.db.transaction(async (tx) => {

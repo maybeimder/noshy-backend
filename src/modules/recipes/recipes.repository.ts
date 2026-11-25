@@ -135,6 +135,24 @@ export class RecipesRepository {
     await this.db.insert(savedRecipes).values({ userId, recipeId }).onConflictDoNothing();
   }
 
+  /** Guardadas que la persona todavía puede abrir, de la más nueva a la más vieja. */
+  async savedIds(userId: string, limit: number, offset: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: savedRecipes.recipeId })
+      .from(savedRecipes)
+      .innerJoin(recipes, eq(recipes.id, savedRecipes.recipeId))
+      .where(and(eq(savedRecipes.userId, userId), or(eq(recipes.status, 'published'), and(eq(recipes.authorId, userId), ne(recipes.status, 'removed')))))
+      .orderBy(desc(savedRecipes.createdAt), desc(savedRecipes.recipeId))
+      .limit(limit)
+      .offset(offset);
+    return rows.map((r) => r.id);
+  }
+
+  async publishedByIdOrSlug(key: string): Promise<RecipeRow | null> {
+    const [row] = await this.db.select().from(recipes).where(and(eq(recipes.status, 'published'), or(eq(recipes.id, key), eq(recipes.slug, key)))).limit(1);
+    return row ?? null;
+  }
+
   async unsave(userId: string, recipeId: string) {
     await this.db.delete(savedRecipes).where(and(eq(savedRecipes.userId, userId), eq(savedRecipes.recipeId, recipeId)));
   }
@@ -202,8 +220,18 @@ export class RecipesRepository {
     return c!;
   }
 
+  async comment(id: string) {
+    const [row] = await this.db.select().from(comments).where(eq(comments.id, id));
+    return row ?? null;
+  }
+
+  async deleteComment(exec: Executor, row: { id: string; recipeId: string }) {
+    const gone = await exec.delete(comments).where(eq(comments.id, row.id)).returning({ id: comments.id });
+    if (gone.length) await exec.update(recipes).set({ commentsCount: sql`greatest(${recipes.commentsCount} - 1, 0)` }).where(eq(recipes.id, row.recipeId));
+  }
+
   async authoredBy(userId: string, status: string | undefined, limit: number, cursor: { k: string; id: string } | null) {
-    const where: SQL[] = [eq(recipes.authorId, userId), eq(recipes.authorType, 'user')];
+    const where: SQL[] = [eq(recipes.authorId, userId), eq(recipes.authorType, 'user'), ne(recipes.status, 'removed')];
     if (status) where.push(eq(recipes.status, status));
     if (cursor) {
       const at = new Date(cursor.k);

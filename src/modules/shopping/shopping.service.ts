@@ -8,6 +8,7 @@ import type { PantryService } from '../pantry/pantry.service.js';
 import type { PreferencesService } from '../onboarding/preferences.service.js';
 import type { RecipesService } from '../recipes/recipes.service.js';
 import type { Unit } from '../../core/domain/quantity.js';
+import { acceptsUnit } from '../../core/domain/household.js';
 import { cop } from '../../core/shared/money.js';
 import { AppError, Errors, field } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
@@ -223,7 +224,7 @@ export class ShoppingService {
     if (!item) throw Errors.notFound('Ese ítem no está en la lista.');
     if (patch.quantity) {
       const ing = this.catalog.ingredientOrThrow(item.ingredientId);
-      if (!ing.allowedUnits.includes(patch.quantity.unit)) throw Errors.validation([field('quantity.unit', 'INVALID_UNIT', `Unidad no permitida para ${ing.label}.`)]);
+      if (!acceptsUnit(ing, patch.quantity.unit)) throw Errors.validation([field('quantity.unit', 'INVALID_UNIT', `Unidad no permitida para ${ing.label}.`)]);
     }
     await this.db.transaction(async (tx) => {
       await this.repo.updateItem(tx, item.id, {
@@ -385,6 +386,18 @@ export class ShoppingService {
     }
     await this.repo.deleteItems(exec, toDelete);
     return { removed: toDelete.length };
+  }
+
+  async removeItem(userId: string, listId: string, itemId: string) {
+    const list = await this.activeOrThrow(userId, listId);
+    if (!(await this.repo.item(list.id, itemId))) throw Errors.notFound('Ese ítem no está en la lista.');
+    await this.repo.deleteItems(this.db, [itemId]);
+  }
+
+  async removeRecipe(userId: string, listId: string, recipeId: string) {
+    const list = await this.activeOrThrow(userId, listId);
+    if (!(await this.repo.recipes(list.id)).some((r) => r.recipeId === recipeId)) throw Errors.notFound('Esa receta no está en la lista.');
+    return this.db.transaction((tx) => this.removeRecipeTx(tx, userId, recipeId));
   }
 
   /** Vista pública del enlace compartido (sin login). */

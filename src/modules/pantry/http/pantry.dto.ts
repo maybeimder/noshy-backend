@@ -23,7 +23,7 @@ export const PantryAddBody = z
   })
   .refine((v) => (v.ingredientId === undefined) !== (v.text === undefined), { message: 'Manda ingredientId o text, solo uno', path: ['ingredientId'] });
 export const PantryPatchBody = z
-  .object({ remainingPct: z.number().int().min(0).max(100), storage: Storage, expiresOn: IsoDate })
+  .object({ remainingPct: z.number().int().min(0).max(100), storage: Storage, expiresOn: IsoDate, quantity: QuantityInput })
   .partial()
   .refine((v) => Object.keys(v).length > 0, 'Manda al menos un campo');
 export const PantryDeleteQuery = z.object({ addToShoppingList: z.enum(['true', 'false']).optional() });

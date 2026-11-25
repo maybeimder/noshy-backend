@@ -21,6 +21,7 @@ export const IdPrefix = {
   adaptation: 'adp',
   proposal: 'prp',
   comment: 'cmt',
+  report: 'rep',
   event: 'evt',
   outbox: 'obx',
   refreshToken: 'rtk',

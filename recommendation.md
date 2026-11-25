@@ -33,7 +33,7 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 - **Arreglo:** definir `PUBLIC_BASE_URL=https://api.noshy.javila.dev` en el `.env` del despliegue y reiniciar la API.
 - **Verificar después:** que `PUT /api/v1/storage/upload` acepte el cuerpo binario con `Content-Type: image/jpeg|png|webp|heic` (parser de Fastify) y responda a la consulta CORS desde el dominio del front; y que `publicUrl()` devuelva el mismo dominio, porque si no las fotos subidas tampoco se verán.
 
-**Estado en el backend:** con tests, el `PUT` acepta jpeg, png, webp y heic, responde a CORS y `publicUrl()` usa el mismo dominio. Falta definir `PUBLIC_BASE_URL` en el `.env` del servidor.
+**Estado en el backend:** con tests, el `PUT` acepta jpeg, png, webp y heic, responde a CORS y `publicUrl()` usa el mismo dominio. `PUBLIC_BASE_URL` ya está definida en el servidor (24 nov 2026: `/docs/json` anuncia `https://api.noshy.javila.dev`); si vuelve a apuntar a localhost en producción, la API lo avisa en el log al arrancar.
 
 ## 3. Nuevo en el backend
 
@@ -44,7 +44,7 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 
 - **Ingredientes por paso:** `GET /recipes/{id}` trae `steps[].ingredients` (`ingredientId, label, prep, quantity, inPantry`), y `steps[].ingredients` de la sesión de cocina ahora viene lleno en todas las recetas (la pantalla de cocina ya lo pinta en «Para este paso»). Puede venir `[]` si el paso no usa nada nuevo.
 - **Editor de recetas (opcional):** `PATCH /me/recipes/{id}` acepta `steps[].ingredientIds`. Sin eso, el backend lo deduce del texto.
-- **Explorar:** `GET /me/recommendations` sin `slot`, `usingIngredientIds` ni `source=pantry` devuelve el recetario completo: comunidad, Noshy y biblioteca intercaladas, sin filtrar por el tiempo preferido (solo `maxMinutes` si se manda). `reason.label` dice «De la comunidad» o «Recetario».
+- **Explorar:** `GET /me/recommendations` sin `slot`, `usingIngredientIds` ni `source=pantry` devuelve el recetario completo: comunidad, Noshy y biblioteca intercaladas, sin filtrar por el tiempo preferido (solo `maxMinutes` si se manda). `reason.label` dice «De la comunidad» o «Biblioteca» (en el front, «Recetario» son las recetas propias y guardadas).
 
 ## 5. Foto de tu plato
 
@@ -54,7 +54,7 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 
 - Las recetas del recetario vienen **en inglés** (título, ingredientes y pasos), con calorías estimadas.
 - `source=library` devuelve solo el recetario. `meta.total` es el número de recetas y `meta.library` = `{ count, status }`: `filling` (trayendo más: volver a pedir), `paused` (no encontró más por ahora), `ready`.
-- El front ya lo usa: chip «Recetario», etiqueta de origen y `≈ kcal` cuando `nutritionEstimated`.
+- El front ya lo usa: chip «Biblioteca», etiqueta de origen y `≈ kcal` cuando `nutritionEstimated`.
 
 ## 7. Foto de los productos
 
@@ -66,3 +66,17 @@ Probado con una sesión real: `POST /api/v1/media/uploads` responde 201, pero la
 - **Chef:** inventa su propia receta. El modelo la entrega en JSON, el backend la valida, revisa alergias y dieta, y llega como un bloque `recipeCard` normal (`reason.label: "Creada para ti"`, `id: "rcp_ai_…"`). Se abre con `GET /recipes/{id}`, y se puede guardar, cocinar y mandar a la lista.
 - Son **privadas**: otra persona recibe 404, así que el enlace de compartir no le sirve a nadie más. `author.type` es `chef`.
 - Puede tardar hasta 90 s en el peor caso (modelos gratis); el SSE manda latidos cada 10 s.
+
+## 9. Huecos del MVP (24 nov 2026)
+
+El front ya usa todo esto. Requiere la migración `0004_content_reports`.
+
+- **Guardadas:** `GET /me/saved-recipes` (paginado). El front ya no guarda los ids en el dispositivo.
+- **Compartir:** `GET /shared/recipes/{key}` es público; el enlace es `/r/{id}`.
+- **Menú:** una semana nueva se abre sola al pedir `GET /me/menus/current`. `POST /me/menus/{id}/regenerate` cambia las recetas de hoy en adelante.
+- **Compras y despensa:** se puede borrar un producto o una receta de la lista y cambiar cantidades. `PATCH /me/pantry/{id}` acepta `quantity`.
+- **Recetas propias:** `unpublish`, `DELETE` y `rejectionReason` en la lista.
+- **Comunidad:** perfil de creador, `q` y `authorId` en el feed, filtro `following`, borrar comentarios y `POST /community/reports`. Los reportes se guardan en `content_reports`; no hay panel para revisarlos.
+- **Historial:** `GET /me/days?from&to` (máximo 31 días) y `entries` en cada día.
+- **Cuenta:** `POST /auth/logout`, `POST /me/password`. Google y Apple aparecen en el front con `VITE_GOOGLE_CLIENT_ID` y `VITE_APPLE_CLIENT_ID`, los mismos ids de `GOOGLE_CLIENT_IDS` y `APPLE_CLIENT_IDS`.
+- **Fuera del MVP:** correo (y con él, recuperar contraseña) y facturas (`RECEIPT_PARSER=none`; en el front, `shared/config/features.ts`).

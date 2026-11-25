@@ -36,7 +36,8 @@ const EnvSchema = z.object({
   STORAGE_DIR: z.string().default('./.storage'),
   UPLOAD_SIGNING_SECRET: z.string().min(8).default('dev-upload-secret'),
 
-  RECEIPT_PARSER: z.enum(['mock', 'none']).default('mock'),
+  /** `mock` inventa la compra: solo para desarrollo. Sin lector real, `none` (las facturas quedan fuera del MVP). */
+  RECEIPT_PARSER: z.enum(['mock', 'none']).default('none'),
   /** rules: motor determinista · openrouter: LLM con respaldo en reglas (necesita OPENROUTER_API_KEY). */
   CHEF_ENGINE: z.enum(['rules', 'openrouter']).optional(),
   OPENROUTER_API_KEY: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().trim().optional()),

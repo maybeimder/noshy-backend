@@ -38,11 +38,11 @@ describe('biblioteca de recetas', () => {
 
   it('explorar las trae en la primera visita, en inglés, con calorías y solo lo que cada quien puede comer', async () => {
     const r = (await users.omni!.get('/me/recommendations?limit=20')).body;
-    expect(r.data[0]).toMatchObject({ reason: { label: 'Recetario' }, nutritionEstimated: true });
+    expect(r.data[0]).toMatchObject({ reason: { label: 'Biblioteca' }, nutritionEstimated: true });
     expect(r.meta.library).toMatchObject({ status: 'ready' });
     expect(r.meta.library.count).toBeGreaterThanOrEqual(60);
     expect(r.data.every((x: any) => x.nutritionPerServing.kcal > 0)).toBe(true);
-    expect([...new Set(r.data.map((x: any) => x.reason.label))]).toEqual(expect.arrayContaining(['De la comunidad', 'Recetario']));
+    expect([...new Set(r.data.map((x: any) => x.reason.label))]).toEqual(expect.arrayContaining(['De la comunidad', 'Biblioteca']));
     const vegan = (await users.vegan!.get('/me/recommendations?limit=20&source=library')).body;
     expect(vegan.data.length).toBe(20);
     expect(vegan.data.every((x: any) => x.nutritionEstimated && !/cheese|feta/i.test(x.title))).toBe(true);

@@ -17,6 +17,7 @@ import { DIFFICULTIES, labelOf, type GoalId } from '../../core/domain/catalog.js
 import type { CookingStepSnapshot } from '../cooking/cooking.snapshots.js';
 import type { StepTemplate } from '../../infrastructure/database/postgres/types.js';
 import { isDishPhoto } from './dish-photos.js';
+import { decodeCursor, encodeCursor } from '../../core/shared/cursor.js';
 import { Errors } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
 
@@ -422,6 +423,38 @@ export class RecipesService {
     });
     this.outbox.kick();
     return this.detail(userId, recipeId, { adapted: true });
+  }
+
+  async saved(userId: string, q: { cursor?: string; limit?: number }) {
+    const limit = Math.min(q.limit ?? 20, 50);
+    const offset = Number(decodeCursor(q.cursor)?.k ?? 0);
+    const ids = await this.repo.savedIds(userId, limit + 1, offset);
+    return {
+      data: await this.cards(userId, ids.slice(0, limit)),
+      meta: { nextCursor: ids.length > limit ? encodeCursor({ k: offset + limit, id: 'offset' }) : null, limit },
+    };
+  }
+
+  /** La receta de un enlace compartido, para quien no tiene cuenta: tal como se publicó, sin adaptar. */
+  async publicView(key: string) {
+    const recipe = await this.repo.publishedByIdOrSlug(key);
+    if (!recipe) throw Errors.notFound('Esa receta no existe o ya no está publicada.');
+    const rows = (await this.ingredientsFor([recipe.id])).get(recipe.id) ?? [];
+    const author = recipe.authorType === 'user' && recipe.authorId ? (await this.authorOf(recipe.authorId)).displayName : 'Noshy';
+    return {
+      id: recipe.id,
+      title: recipe.title,
+      imageUrl: recipe.imageUrl,
+      imageIsReference: isDishPhoto(recipe.imageUrl),
+      author,
+      cuisine: recipe.cuisineId ? { id: recipe.cuisineId, label: recipe.cuisineLabel ?? recipe.cuisineId } : null,
+      totalTimeMinutes: { min: recipe.timeMin ?? 0, max: recipe.timeMax ?? recipe.timeMin ?? 0 },
+      servings: recipe.baseServings,
+      nutritionPerServing: recipe.nutritionPerServing,
+      nutritionEstimated: recipe.nutritionStatus === 'estimated',
+      ingredients: rows.map((r) => ({ label: this.catalog.label(r.ingredientId), icon: this.catalog.ingredient(r.ingredientId)?.icon ?? '', quantity: this.catalog.quantity(r.ingredientId, r.value, r.unit).display })),
+      steps: this.cookingSteps(recipe, rows, null, 1).map((st) => ({ title: st.title, text: st.subSteps.map((ss) => ss.text).join(' ') })),
+    };
   }
 
   async setSaved(userId: string, recipeId: string, saved: boolean) {

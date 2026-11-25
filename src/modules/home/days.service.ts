@@ -8,12 +8,14 @@ import { scaleMacros, sumMacros, type Macros } from '../../core/domain/nutrition
 import type { MealSlotId } from '../../core/domain/catalog.js';
 import { Errors, field } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
-import { daysBetween, isIsoDate, localDate, localTime } from '../../core/shared/time.js';
+import { addDays, daysBetween, isIsoDate, localDate, localTime } from '../../core/shared/time.js';
 
 export type LogMealInput =
   | { slot: MealSlotId; recipeId: string; servings?: number; skipped?: undefined; freeText?: undefined; nutrition?: undefined }
   | { slot: MealSlotId; freeText: string; nutrition: Macros; recipeId?: undefined; skipped?: undefined; servings?: number }
   | { slot: MealSlotId; skipped: true; recipeId?: undefined; freeText?: undefined; nutrition?: undefined; servings?: undefined };
+
+const MAX_HISTORY_DAYS = 31;
 
 /** El día nutricional: lo consumido contra la meta y las franjas con su estado. */
 export class DaysService {
@@ -37,6 +39,23 @@ export class DaysService {
     return this.build(date, tz, prefs.kitchen.mealsPerDay, prefs.nutritionTargets, logs);
   }
 
+  /** Totales por día, del más nuevo al más viejo. La meta es la de hoy: no se guarda la de cada día. */
+  async history(userId: string, from: string, to: string) {
+    this.assertDate(from);
+    this.assertDate(to);
+    const days = daysBetween(from, to);
+    if (days < 0 || days >= MAX_HISTORY_DAYS) throw Errors.validation([field('from', 'OUT_OF_RANGE', `Pide entre 1 y ${MAX_HISTORY_DAYS} días.`)]);
+    const [prefs, logs] = await Promise.all([this.preferences.getOrThrow(userId), this.meals.between(userId, from, to)]);
+    const { kcal, proteinG, carbsG, fatG } = prefs.nutritionTargets;
+    return {
+      target: { kcal, proteinG, carbsG, fatG },
+      days: Array.from({ length: days + 1 }, (_, i) => addDays(to, -i)).map((date) => {
+        const eaten = logs.filter((l) => l.localDate === date && !l.skipped);
+        return { date, meals: eaten.length, consumed: sumMacros(eaten.map((l) => ({ kcal: l.kcal, proteinG: l.proteinG, carbsG: l.carbsG, fatG: l.fatG }))) };
+      }),
+    };
+  }
+
   build(date: string, tz: string, mealsPerDay: number, t: Macros, logs: MealLogRow[]) {
     const eaten = logs.filter((l) => !l.skipped);
     const consumed = sumMacros(eaten.map((l) => ({ kcal: l.kcal, proteinG: l.proteinG, carbsG: l.carbsG, fatG: l.fatG })));
@@ -55,6 +74,8 @@ export class DaysService {
         const status: SlotStatus = mine.some((l) => !l.skipped) ? 'logged' : mine.some((l) => l.skipped) ? 'skipped' : s.slot === current ? 'current' : 'pending';
         return { slot: s.slot, label: s.label, status, kcal: status === 'logged' ? kcal : null, window: s.window };
       }),
+      /** Cada registro, para verlo o borrarlo. */
+      entries: logs.map((l) => ({ id: l.id, slot: l.slot, label: l.label, recipeId: l.recipeId, skipped: l.skipped, kcal: l.kcal, proteinG: l.proteinG, carbsG: l.carbsG, fatG: l.fatG })),
     };
   }
 

@@ -2,7 +2,6 @@ import type { Db } from '../../infrastructure/database/postgres/postgres.client.
 import type { Outbox } from '../../core/events/outbox.js';
 import type { RecipesRepository, RecipeRow } from '../recipes/recipes.repository.js';
 import type { MediaRepository } from '../media/media.repository.js';
-import type { UsersRepository } from '../auth/auth.repository.js';
 import type { CatalogService } from '../catalog/catalog.service.js';
 import type { RecipesService } from '../recipes/recipes.service.js';
 import type { Storage } from '../../infrastructure/storage/storage.js';
@@ -11,6 +10,7 @@ import type { ChefConsultable, UserStep } from '../../infrastructure/database/po
 import { recipeNutrition } from '../../core/domain/nutrition.js';
 import { DIFFICULTIES, labelOf, type Difficulty } from '../../core/domain/catalog.js';
 import type { Unit } from '../../core/domain/quantity.js';
+import { acceptsUnit } from '../../core/domain/household.js';
 import { decodeCursor, encodeCursor } from '../../core/shared/cursor.js';
 import { Errors, field, type FieldError } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
@@ -41,7 +41,6 @@ export class AuthoringService {
     private readonly db: Db,
     private readonly recipesRepo: RecipesRepository,
     private readonly media: MediaRepository,
-    private readonly users: UsersRepository,
     private readonly recipes: RecipesService,
     private readonly catalog: CatalogService,
     private readonly storage: Storage,
@@ -93,7 +92,7 @@ export class AuthoringService {
   private async ownDraft(userId: string, recipeId: string) {
     const r = await this.recipesRepo.byId(recipeId);
     // Las que crea el chef también son de la persona, pero no se editan ni publican.
-    if (!r || r.authorId !== userId || r.authorType !== 'user') throw Errors.notFound('Esa receta no existe.');
+    if (!r || r.authorId !== userId || r.authorType !== 'user' || r.status === 'removed') throw Errors.notFound('Esa receta no existe.');
     return r;
   }
 
@@ -106,7 +105,7 @@ export class AuthoringService {
     patch.ingredients?.forEach((i, idx) => {
       const ing = this.catalog.ingredient(i.ingredientId);
       if (!ing) errs.push(field(`ingredients.${idx}.ingredientId`, 'INVALID_OPTION', 'Ingrediente desconocido.'));
-      else if (!ing.allowedUnits.includes(i.quantity.unit)) errs.push(field(`ingredients.${idx}.quantity.unit`, 'INVALID_UNIT', `Unidad no permitida para ${ing.label}.`));
+      else if (!acceptsUnit(ing, i.quantity.unit)) errs.push(field(`ingredients.${idx}.quantity.unit`, 'INVALID_UNIT', `Unidad no permitida para ${ing.label}.`));
     });
     let imageUrl: string | undefined;
     if (patch.coverMediaId) {
@@ -149,8 +148,6 @@ export class AuthoringService {
   async publish(userId: string, recipeId: string) {
     const r = await this.ownDraft(userId, recipeId);
     if (r.status === 'published' || r.status === 'inReview') throw Errors.conflict('ALREADY_PUBLISHED', 'Esa receta ya está publicada.');
-    const user = await this.users.findById(userId);
-    if (!user?.emailVerified) throw Errors.forbidden('EMAIL_NOT_VERIFIED', 'Verifica tu email para publicar.');
     const ingredients = (await this.recipesRepo.ingredientsFor([recipeId])).get(recipeId) ?? [];
     const missing: FieldError[] = [];
     if (!r.coverMediaId) missing.push(field('coverMediaId', 'REQUIRED', 'Agrega una foto.'));
@@ -165,6 +162,21 @@ export class AuthoringService {
     });
     this.outbox.kick();
     return { id: recipeId, status: 'inReview' as const, publishedAt: null, shareUrl: `${this.shareBaseUrl}/r/${slug}` };
+  }
+
+  /** Vuelve a borrador: sale de la comunidad y se puede editar. Conserva sus me gusta y comentarios. */
+  async unpublish(userId: string, recipeId: string) {
+    const r = await this.ownDraft(userId, recipeId);
+    if (r.status !== 'published') throw Errors.conflict('NOT_PUBLISHED', 'Esa receta no está publicada.');
+    const updated = await this.recipesRepo.update(this.db, recipeId, { status: 'draft', publishedAt: null });
+    return (await this.withCounts([updated!]))[0]!;
+  }
+
+  /** No se borra la fila: menús, listas y comidas de otras personas pueden nombrarla. */
+  async remove(userId: string, recipeId: string) {
+    const r = await this.ownDraft(userId, recipeId);
+    if (r.status === 'inReview') throw Errors.conflict('IN_REVIEW', 'La estamos revisando. Espera un momento para borrarla.');
+    await this.recipesRepo.update(this.db, recipeId, { status: 'removed', publishedAt: null });
   }
 
   /** Lo corre el observer `community` con `recipe.publish_requested`: modera, estructura para modo cocina y publica. */

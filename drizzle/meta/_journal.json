@@ -29,6 +29,13 @@
       "when": 1795453238716,
       "tag": "0003_biometrics",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795575305005,
+      "tag": "0004_content_reports",
+      "breakpoints": true
     }
   ]
 }

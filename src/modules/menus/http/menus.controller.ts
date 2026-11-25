@@ -13,6 +13,8 @@ export class MenusController {
 
   retry = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.services.menus.retry(req.user.id, req.params.menuId, req.tz));
 
+  regenerate = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.services.menus.regenerate(req.user.id, req.params.menuId, req.tz));
+
   addEntry = async (req: Req<{ Params: z.infer<typeof MenuParams>; Body: z.infer<typeof AddMenuEntryBody> }>) =>
     ok(await this.c.services.menus.addEntry(req.user.id, req.params.menuId, req.body));
 

@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, gte, ne, sql } from 'drizzle-orm';
 import type { Db, Executor } from '../../infrastructure/database/postgres/postgres.client.js';
 import { menuEntries, menus } from '../../infrastructure/database/postgres/schema.js';
 
@@ -29,9 +29,37 @@ export class MenusRepository {
     if (rows.length) await exec.insert(menuEntries).values(rows);
   }
 
-  async latest(userId: string) {
-    const [r] = await this.db.select().from(menus).where(eq(menus.userId, userId)).orderBy(desc(menus.weekStart), desc(menus.createdAt)).limit(1);
+  async latest(userId: string, exec: Executor = this.db) {
+    const [r] = await exec.select().from(menus).where(eq(menus.userId, userId)).orderBy(desc(menus.weekStart), desc(menus.createdAt)).limit(1);
     return r ?? null;
+  }
+
+  /** Una sola petición a la vez abre la semana de una persona. Se suelta al terminar la transacción. */
+  async lockUser(tx: Executor, userId: string) {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`menu:${userId}`}))`);
+  }
+
+  /** Estado actual con la fila bloqueada: dos generaciones a la vez no insertan dos veces. */
+  async statusForUpdate(tx: Executor, menuId: string) {
+    const [r] = await tx.select({ status: menus.status }).from(menus).where(eq(menus.id, menuId)).for('update');
+    return r?.status ?? null;
+  }
+
+  /** Recetas del menú anterior a este. */
+  async recentRecipeIds(userId: string, menuId: string) {
+    const [previous] = await this.db.select({ id: menus.id }).from(menus).where(and(eq(menus.userId, userId), ne(menus.id, menuId))).orderBy(desc(menus.weekStart), desc(menus.createdAt)).limit(1);
+    if (!previous) return [];
+    const rows = await this.db.select({ id: menuEntries.recipeId }).from(menuEntries).where(eq(menuEntries.menuId, previous.id));
+    return rows.map((r) => r.id);
+  }
+
+  /** Lo que la persona ya había puesto desde `from` pasa al menú nuevo. */
+  async moveEntries(exec: Executor, fromMenuId: string, toMenuId: string, from: string) {
+    await exec.update(menuEntries).set({ menuId: toMenuId }).where(and(eq(menuEntries.menuId, fromMenuId), gte(menuEntries.localDate, from)));
+  }
+
+  async deleteEntriesFrom(exec: Executor, menuId: string, from: string) {
+    return exec.delete(menuEntries).where(and(eq(menuEntries.menuId, menuId), gte(menuEntries.localDate, from))).returning();
   }
 
   async entry(menuId: string, entryId: string) {

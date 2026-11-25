@@ -255,7 +255,7 @@ export class ChefService {
     const idMap = new Map<string, string>();
     try {
       for await (const chunk of this.engine.reply(
-        { userName: user?.name ?? '', thread, input: resolved, shownRecipeIds: shown, lastChefMessage: last, history },
+        { userName: user?.name ?? '', tone: user?.settings.chef.tone, thread, input: resolved, shownRecipeIds: shown, lastChefMessage: last, history },
         this.tools(userId, prefs, this.preferences.rows(prefs, user?.grammaticalGender ?? null).map((r) => `${r.label}: ${r.summary}`).join('; ')),
       )) {
         if (chunk.type === 'text') {

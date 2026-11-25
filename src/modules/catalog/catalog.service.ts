@@ -5,6 +5,7 @@ import { normalizeText } from './food-text.js';
 import { AppError } from '../../core/shared/errors.js';
 import { cop } from '../../core/shared/money.js';
 import { quantity, toGrams, type Quantity, type Unit } from '../../core/domain/quantity.js';
+import { gramsPerMeasure } from '../../core/domain/household.js';
 import type { IngredientFacts, SubstituteRule } from '../../core/domain/restrictions.js';
 import type { IngredientNutrition } from '../../core/domain/nutrition.js';
 import {
@@ -164,7 +165,7 @@ export class CatalogService {
 
   nutrition(id: string): IngredientNutrition {
     const i = this.ingredientOrThrow(id);
-    return { per100g: i.nutritionPer100g, gramsPerUnit: i.gramsPerUnit };
+    return { per100g: i.nutritionPer100g, gramsPerUnit: gramsPerMeasure(i) };
   }
 
   quantity(ingredientId: string | null, value: number | null, unit: Unit): Quantity {
@@ -205,7 +206,7 @@ export class CatalogService {
   /** Gramos aproximados para comparar cantidades (despensa vs receta). */
   grams(ingredientId: string, value: number | null, unit: Unit): number | null {
     const i = this.s.ingById.get(ingredientId);
-    return toGrams(value, unit, i?.gramsPerUnit ?? {});
+    return toGrams(value, unit, i ? gramsPerMeasure(i) : {});
   }
 
   // ---------- Productos y precios ----------

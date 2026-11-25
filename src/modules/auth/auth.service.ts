@@ -4,7 +4,7 @@ import type { Outbox } from '../../core/events/outbox.js';
 import type { UsersRepository, UserRow } from './auth.repository.js';
 import type { OAuthVerifier } from './auth.providers.js';
 import type { TokenService, Tokens } from './token.service.js';
-import { Errors } from '../../core/shared/errors.js';
+import { Errors, field } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
 
 export type PublicUser = {
@@ -70,6 +70,24 @@ export class AuthService {
     return { tokens };
   }
 
+  async logout(refreshToken: string) {
+    await this.tokens.revoke(refreshToken);
+  }
+
+  /** Cierra las demás sesiones y devuelve una nueva para quien la cambió. */
+  async changePassword(userId: string, input: { currentPassword: string; newPassword: string }) {
+    const user = await this.users.findById(userId);
+    if (!user) throw Errors.unauthorized();
+    if (!user.passwordHash) throw Errors.conflict('NO_PASSWORD', 'Entras con Google o Apple: tu cuenta no tiene contraseña.');
+    if (!(await verify(user.passwordHash, input.currentPassword).catch(() => false))) throw Errors.validation([field('currentPassword', 'WRONG_PASSWORD', 'Esa no es tu contraseña actual.')]);
+    const passwordHash = await hash(input.newPassword);
+    return this.db.transaction(async (tx) => {
+      await this.users.update(tx, userId, { passwordHash });
+      await this.users.revokeAll(tx, userId);
+      return { tokens: await this.tokens.issue(tx, userId) };
+    });
+  }
+
   async oauthSignIn(provider: 'google' | 'apple', input: { idToken: string; nonce?: string | null; name?: string | null; acceptedTermsVersion: string }, tz: string) {
     let profile;
     try {
@@ -88,6 +106,8 @@ export class AuthService {
       if (existing?.passwordHash) {
         throw Errors.conflict('EMAIL_LINKED_TO_PASSWORD', 'Ese email ya tiene cuenta con contraseña. Inicia sesión con tu contraseña para vincularla.');
       }
+      // Sin correo verificado por el proveedor, cualquiera podría quedarse con la cuenta de otro.
+      if (existing && !profile.emailVerified) throw Errors.conflict('EMAIL_NOT_VERIFIED_BY_PROVIDER', 'Tu proveedor no ha verificado ese correo.');
       if (existing) {
         await this.users.linkIdentity(this.db, { id: newId('identity'), userId: existing.id, provider, subject: profile.subject });
         const tokens = await this.tokens.issue(this.db, existing.id);

@@ -108,7 +108,7 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
   const kitchen = new KitchenService(repos.cooking, repos.recipes, catalog, providers.storage);
   // community, authoring
   const community = new CommunityService(db, repos.recipes, repos.users, recipes, catalog, providers.moderation, outbox);
-  const authoring = new AuthoringService(db, repos.recipes, repos.media, repos.users, recipes, catalog, providers.storage, providers.moderation, outbox, env.SHARE_BASE_URL);
+  const authoring = new AuthoringService(db, repos.recipes, repos.media, recipes, catalog, providers.storage, providers.moderation, outbox, env.SHARE_BASE_URL);
   // profile, account, home
   const profile = new ProfileService(repos.users, repos.cooking, repos.recipes, preferences, insights);
   const account = new AccountService(db, repos.account, repos.users, repos.media, providers.mailer, providers.storage, outbox, eventStore);

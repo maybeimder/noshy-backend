@@ -14,6 +14,8 @@ if (env.SEED_ON_START) {
   if (seeded) console.log('Catálogo inicial cargado');
 }
 const app = await buildApp({ env });
+if (env.NODE_ENV === 'production' && ['localhost', '127.0.0.1'].includes(new URL(env.PUBLIC_BASE_URL).hostname))
+  app.log.error({ PUBLIC_BASE_URL: env.PUBLIC_BASE_URL }, 'PUBLIC_BASE_URL apunta a esta máquina: nadie podrá subir fotos. Define el dominio público de la API');
 const { events } = app.container;
 // Sin bloquear el arranque: son cientos de recetas la primera vez y ninguna después.
 void app.container.services.recipePhotos

@@ -37,6 +37,8 @@ export type ChefTools = {
 
 export type ChefTurn = {
   userName: string;
+  /** Ajustes › Tono. */
+  tone?: 'direct' | 'conversational';
   thread: ChefThreadDoc;
   input: ChefInputResolved;
   shownRecipeIds: string[];
@@ -218,7 +220,7 @@ export class LlmChefEngine implements ChefEngine {
 
   private async ask(turn: ChefTurn, tools: ChefTools, text: string, system: string, context: string): Promise<{ reply: string; recipeIds: string[]; recipes: unknown[] }> {
     const out = (await this.llm.chatJson([
-      { role: 'system', content: `${system}\n\nPersona: ${turn.userName}. Preferencias y restricciones: ${tools.preferencesSummary()}\n${context}` },
+      { role: 'system', content: `${system} ${turn.tone === 'direct' ? 'Tono: directo, frases cortas, sin saludos ni rodeos.' : 'Tono: conversador y cercano, como quien cocina contigo.'}\n\nPersona: ${turn.userName}. Preferencias y restricciones: ${tools.preferencesSummary()}\n${context}` },
       ...turn.history.map((m) => ({ role: m.role === 'chef' ? ('assistant' as const) : ('user' as const), content: m.text })),
       { role: 'user', content: text },
     ])) as { reply?: unknown; recipeIds?: unknown; recipeId?: unknown; recipes?: unknown; recipe?: unknown } | null;

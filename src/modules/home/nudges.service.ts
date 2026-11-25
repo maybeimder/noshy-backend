@@ -4,7 +4,7 @@ import type { Outbox } from '../../core/events/outbox.js';
 import type { NudgesRepository, NudgeRow } from './nudges.repository.js';
 import type { PantryRepository } from '../pantry/pantry.repository.js';
 import type { RecommendationsService } from '../recipes/recommendations.service.js';
-import { cookingSessions } from '../../infrastructure/database/postgres/schema.js';
+import { cookingSessions, users } from '../../infrastructure/database/postgres/schema.js';
 import { Errors } from '../../core/shared/errors.js';
 import { newId } from '../../core/shared/ids.js';
 import { addDays, localDate, localTime } from '../../core/shared/time.js';
@@ -49,6 +49,9 @@ export class NudgesService {
   }
 
   private async refreshExpiring(userId: string, tz: string, mealsPerDay: number) {
+    // Ajustes › «Cuando algo vence».
+    const [u] = await this.db.select({ settings: users.settings }).from(users).where(eq(users.id, userId));
+    if (u && !u.settings.notifications.expiring) return;
     const today = localDate(new Date(), tz);
     const [first] = await this.pantry.expiringBefore(userId, addDays(today, 1), 1);
     if (!first?.expiresOn) return;

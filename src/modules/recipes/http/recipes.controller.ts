@@ -2,8 +2,8 @@ import type { z } from 'zod';
 import type { Container } from '../../../container.js';
 import type { Req, Rep } from '../../../core/shared/request.js';
 import { ok } from '../../../core/shared/http.js';
-import type { RecipeIdParam } from '../../../core/shared/common.dto.js';
-import type { ApplyAdaptationBody, CookedQuery, EstimateBody, RecipeDetailQuery } from './recipes.dto.js';
+import type { Page, RecipeIdParam } from '../../../core/shared/common.dto.js';
+import type { ApplyAdaptationBody, CookedQuery, EstimateBody, RecipeDetailQuery, SharedRecipeParams } from './recipes.dto.js';
 
 export class RecipesController {
   constructor(private readonly c: Container) {}
@@ -15,6 +15,10 @@ export class RecipesController {
     reply.code(201);
     return ok(await this.c.services.recipes.applyProposal(req.user.id, req.params.recipeId, req.body.proposalId));
   };
+
+  saved = async (req: Req<{ Querystring: z.infer<typeof Page> }>) => this.c.services.recipes.saved(req.user.id, req.query);
+
+  shared = async (req: Req<{ Params: z.infer<typeof SharedRecipeParams> }>) => ok(await this.c.services.recipes.publicView(req.params.key));
 
   save = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>, reply: Rep) => {
     await this.c.services.recipes.setSaved(req.user.id, req.params.recipeId, true);

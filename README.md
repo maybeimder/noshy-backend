@@ -215,23 +215,23 @@ src/
 
 ## Endpoints
 
-85 operaciones. La referencia completa con esquemas está en `/docs`. Resumen:
+La referencia completa con esquemas está en `/docs`. Resumen:
 
-- **Cuenta:** `POST /auth/register`, `POST /auth/oauth/{provider}`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/email/verify`, `POST /auth/email/resend`
+- **Cuenta:** `POST /auth/register`, `POST /auth/oauth/{provider}`, `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /me/password`, `POST /auth/email/verify`, `POST /auth/email/resend`
 - **Ajustes:** `GET|PATCH /me/settings`, `POST /me/data-exports`, `GET /me/data-exports/{id}`, `GET /me/data-exports/{id}/download`, `DELETE /me`
-- **Onboarding:** `GET /onboarding/options`, `POST /nutrition/targets/preview`, `GET|PATCH /me/onboarding`, `POST /me/onboarding/complete`, `GET /me/menus/{id}`, `POST /me/menus/{id}/retry`
+- **Onboarding:** `GET /onboarding/options`, `POST /nutrition/targets/preview`, `GET|PATCH /me/onboarding`, `POST /me/onboarding/complete`, `GET /me/menus/{id}`, `POST /me/menus/{id}/retry`, `POST /me/menus/{id}/regenerate`
 - **Mi semana:** `GET /me/menus/current`, `POST /me/menus/{id}/entries`, `PATCH|DELETE /me/menus/{id}/entries/{entryId}`, `POST /me/menus/{id}/shopping-list`
 - **Tu despensa (onboarding):** `GET /me/pantry/suggestions`, `POST /me/pantry/bulk`
 - **Facturas:** `POST /me/receipts` (multipart), `GET /me/receipts/{id}`, `GET /me/receipts/{id}/items`, `PATCH /me/receipts/{id}/items/{itemId}`
-- **Inicio:** `GET /me/home`, `GET /me/days/{date}`, `POST /me/days/{date}/meals`, `DELETE /me/days/{date}/meals/{id}`, `GET /me/recommendations`, `GET /me/nudges`, `POST /me/nudges/{id}/dismiss`, `POST /nutrition/estimate`
+- **Inicio:** `GET /me/home`, `GET /me/days?from&to`, `GET /me/days/{date}`, `POST /me/days/{date}/meals`, `DELETE /me/days/{date}/meals/{id}`, `GET /me/recommendations`, `GET /me/nudges`, `POST /me/nudges/{id}/dismiss`, `POST /nutrition/estimate`
 - **Tu chef:** `POST /me/chef/threads`, `GET|POST /me/chef/threads/{id}/messages`, `POST /me/chef/threads/{id}/read`, `POST /me/chef/messages/{id}/feedback`, `GET /me/chef/insights`, `POST /me/chef/insights/{id}/feedback`
 - **Mi despensa:** `GET /me/pantry/overview`, `GET /me/pantry`, `POST /me/pantry/items`, `PATCH|DELETE /me/pantry/{id}`
-- **Lista de compras:** `GET /me/shopping-lists/current`, `POST /me/shopping-lists/current/items`, `POST /me/shopping-lists/current/recipes`, `PATCH /me/shopping-lists/{id}/items/{itemId}`, `POST …/items/{itemId}/swap`, `POST …/share`, `POST …/checkout`, `GET /shared/lists/{token}` (público)
+- **Lista de compras:** `GET /me/shopping-lists/current`, `POST /me/shopping-lists/current/items`, `POST /me/shopping-lists/current/recipes`, `PATCH|DELETE /me/shopping-lists/{id}/items/{itemId}`, `DELETE /me/shopping-lists/{id}/recipes/{recipeId}`, `POST …/items/{itemId}/swap`, `POST …/share`, `POST …/checkout`, `GET /shared/lists/{token}` (público)
 - **Mi cocina:** `GET /me/cooked-recipes`
-- **Recetas:** `GET /recipes/{id}`, `POST /recipes/{id}/adaptations`, `PUT|DELETE /me/saved-recipes/{id}`, `PUT|DELETE /me/liked-recipes/{id}`
+- **Recetas:** `GET /recipes/{id}`, `POST /recipes/{id}/adaptations`, `GET /shared/recipes/{key}` (público), `GET /me/saved-recipes`, `PUT|DELETE /me/saved-recipes/{id}`, `PUT|DELETE /me/liked-recipes/{id}`
 - **Modo cocina:** `POST /me/cooking-sessions`, `GET /me/cooking-sessions/active`, `GET /me/cooking-sessions/{id}`, `POST …/events`, `POST …/complete`, `POST …/abandon`
-- **Comunidad:** `GET /community/feed`, `GET /community/creators`, `GET|POST /community/recipes/{id}/comments`, `PUT|DELETE /me/following/{userId}`
-- **Crear receta:** `POST /media/uploads`, `POST /me/recipes`, `PATCH /me/recipes/{id}`, `POST /me/recipes/{id}/publish`, `GET /me/recipes`, `GET /catalog/ingredients/search`
+- **Comunidad:** `GET /community/feed`, `GET /community/creators`, `GET /community/users/{id}`, `GET|POST /community/recipes/{id}/comments`, `DELETE /community/comments/{id}`, `POST /community/reports`, `PUT|DELETE /me/following/{userId}`
+- **Crear receta:** `POST /media/uploads`, `POST /me/recipes`, `PATCH /me/recipes/{id}`, `POST /me/recipes/{id}/publish`, `POST /me/recipes/{id}/unpublish`, `DELETE /me/recipes/{id}`, `GET /me/recipes`, `GET /catalog/ingredients/search`
 - **Perfil:** `GET /me/profile`, `PATCH /me/preferences`
 
 ## Siguiente

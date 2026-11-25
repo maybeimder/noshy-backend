@@ -1,8 +1,8 @@
 import type { z } from 'zod';
 import type { Container } from '../../../container.js';
-import type { Req } from '../../../core/shared/request.js';
+import type { Req, Rep } from '../../../core/shared/request.js';
 import { ok } from '../../../core/shared/http.js';
-import type { AddItemsBody, AddRecipeBody, CheckoutBody, CurrentListQuery, ItemParams, ListParams, PatchItemBody, ShareTokenParams, SwapBody } from './shopping.dto.js';
+import type { AddItemsBody, AddRecipeBody, CheckoutBody, CurrentListQuery, ItemParams, ListParams, ListRecipeParams, PatchItemBody, ShareTokenParams, SwapBody } from './shopping.dto.js';
 
 export class ShoppingController {
   constructor(private readonly c: Container) {}
@@ -11,6 +11,13 @@ export class ShoppingController {
 
   patchItem = async (req: Req<{ Params: z.infer<typeof ItemParams>; Body: z.infer<typeof PatchItemBody> }>) =>
     ok(await this.c.services.shopping.patchItem(req.user.id, req.params.listId, req.params.itemId, req.body));
+
+  removeItem = async (req: Req<{ Params: z.infer<typeof ItemParams> }>, reply: Rep) => {
+    await this.c.services.shopping.removeItem(req.user.id, req.params.listId, req.params.itemId);
+    return reply.code(204).send();
+  };
+
+  removeRecipe = async (req: Req<{ Params: z.infer<typeof ListRecipeParams> }>) => ok(await this.c.services.shopping.removeRecipe(req.user.id, req.params.listId, req.params.recipeId));
 
   swap = async (req: Req<{ Params: z.infer<typeof ItemParams>; Body: z.infer<typeof SwapBody> }>) =>
     ok(await this.c.services.shopping.swap(req.user.id, req.params.listId, req.params.itemId, req.body.suggestionId));

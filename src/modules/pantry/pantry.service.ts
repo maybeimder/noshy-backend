@@ -4,6 +4,7 @@ import type { PantryListRow, PantryRepository, PantryRow } from './pantry.reposi
 import type { CatalogService } from '../catalog/catalog.service.js';
 import type { RecommendationsService } from '../recipes/recommendations.service.js';
 import type { Unit } from '../../core/domain/quantity.js';
+import { acceptsUnit } from '../../core/domain/household.js';
 import type { Storage } from '../../core/domain/catalog.js';
 import { decodeCursor, slicepage } from '../../core/shared/cursor.js';
 import { Errors, field } from '../../core/shared/errors.js';
@@ -103,7 +104,7 @@ export class PantryService {
     if (!ing) throw Errors.validation([field('ingredientId', 'INVALID_OPTION', 'Ingrediente desconocido.')]);
     if (input.productId && this.catalog.product(input.productId)?.ingredientId !== input.ingredientId)
       throw Errors.validation([field('productId', 'INVALID_OPTION', 'Ese producto no corresponde al ingrediente.')]);
-    if (input.quantity && !ing.allowedUnits.includes(input.quantity.unit))
+    if (input.quantity && !acceptsUnit(ing, input.quantity.unit))
       throw Errors.validation([field('quantity.unit', 'INVALID_UNIT', `Unidad no permitida para ${ing.label}.`)]);
     if (!input.productId) {
       const existing = (await this.repo.byIngredients(userId, [input.ingredientId])).find((p) => !p.productId);
@@ -135,11 +136,15 @@ export class PantryService {
     return this.toDto((await this.repo.byId(userId, row!.id))!);
   }
 
-  async patch(userId: string, itemId: string, patch: { remainingPct?: number; storage?: Storage; expiresOn?: string }) {
+  async patch(userId: string, itemId: string, patch: { remainingPct?: number; storage?: Storage; expiresOn?: string; quantity?: { value: number; unit: Unit } }) {
     const current = await this.get(userId, itemId);
+    const ing = this.catalog.ingredient(current.ingredientId);
+    if (patch.quantity && ing && !acceptsUnit(ing, patch.quantity.unit)) throw Errors.validation([field('quantity.unit', 'INVALID_UNIT', `Unidad no permitida para ${ing.label}.`)]);
     await this.db.transaction(async (tx) => {
       await this.repo.update(tx, userId, itemId, {
         ...(patch.remainingPct !== undefined ? { remainingPct: patch.remainingPct } : {}),
+        // Una cantidad nueva es lo que hay ahora: vuelve a contar desde lleno, salvo que también diga cuánto queda.
+        ...(patch.quantity ? { quantityValue: patch.quantity.value, quantityUnit: patch.quantity.unit, ...(patch.remainingPct === undefined ? { remainingPct: 100 } : {}) } : {}),
         ...(patch.storage ? { storage: patch.storage } : {}),
         ...(patch.expiresOn ? { expiresOn: patch.expiresOn, expiryEstimated: false } : {}),
       });

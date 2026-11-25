@@ -4,6 +4,7 @@ import { MoneyInput, QuantityInput } from '../../../core/shared/common.dto.js';
 export const CurrentListQuery = z.object({ storeId: z.string().max(40).optional(), sort: z.enum(['category', 'storeLayout']).optional() });
 export const ListParams = z.object({ listId: z.string().min(3).max(64) });
 export const ItemParams = z.object({ listId: z.string().min(3).max(64), itemId: z.string().min(3).max(64) });
+export const ListRecipeParams = z.object({ listId: z.string().min(3).max(64), recipeId: z.string().min(3).max(64) });
 export const PatchItemBody = z
   .object({ checked: z.boolean(), quantity: QuantityInput, actualPrice: MoneyInput.nullable() })
   .partial()

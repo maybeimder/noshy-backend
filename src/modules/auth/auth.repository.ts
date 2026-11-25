@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Executor } from '../../infrastructure/database/postgres/postgres.client.js';
 import { follows, oauthIdentities, refreshTokens, users } from '../../infrastructure/database/postgres/schema.js';
 
@@ -67,6 +67,15 @@ export class UsersRepository {
 
   async revokeFamily(familyId: string) {
     await this.db.update(refreshTokens).set({ revokedAt: new Date() }).where(and(eq(refreshTokens.familyId, familyId), isNull(refreshTokens.revokedAt)));
+  }
+
+  async revokeAll(exec: Executor, userId: string) {
+    await exec.update(refreshTokens).set({ revokedAt: new Date() }).where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+  }
+
+  async followerCount(userId: string): Promise<number> {
+    const [row] = await this.db.select({ n: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followeeId, userId));
+    return row?.n ?? 0;
   }
 
   async follow(followerId: string, followeeId: string) {

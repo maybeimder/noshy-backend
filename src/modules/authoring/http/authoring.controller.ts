@@ -19,5 +19,12 @@ export class AuthoringController {
 
   publish = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>) => ok(await this.c.services.authoring.publish(req.user.id, req.params.recipeId));
 
+  unpublish = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>) => ok(await this.c.services.authoring.unpublish(req.user.id, req.params.recipeId));
+
+  remove = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>, reply: Rep) => {
+    await this.c.services.authoring.remove(req.user.id, req.params.recipeId);
+    return reply.code(204).send();
+  };
+
   mine = async (req: Req<{ Querystring: z.infer<typeof MyRecipesQuery> }>) => this.c.services.authoring.mine(req.user.id, req.query);
 }

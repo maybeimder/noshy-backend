@@ -1,3 +1,4 @@
+import { otherUnits } from '../../core/domain/household.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { CatalogService } from './catalog.service.js';
 import type { IngredientRow } from './catalog.repository.js';
@@ -53,6 +54,7 @@ export class IngredientSearchService {
         imageUrl: i.imageUrl ?? null,
         defaultUnit: i.defaultUnit,
         allowedUnits: i.allowedUnits,
+        otherUnits: otherUnits(i),
         conflicts: this.preferences.conflictsForFacts(prefs, i),
       }));
   }

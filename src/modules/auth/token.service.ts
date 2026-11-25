@@ -53,6 +53,12 @@ export class TokenService {
     return { accessToken: await this.signAccess(userId), refreshToken: raw, tokenType: 'Bearer', expiresIn: this.accessTtlSeconds };
   }
 
+  /** Cierra la sesión de ese token. Uno desconocido no es un error: ya no hay sesión que cerrar. */
+  async revoke(raw: string) {
+    const row = await this.users.findRefreshByHash(sha256(raw));
+    if (row) await this.users.revokeFamily(row.familyId);
+  }
+
   async rotate(exec: Executor, raw: string): Promise<Tokens> {
     const invalid = () => Errors.unauthorized('REFRESH_TOKEN_INVALID', 'Tu sesión ya no es válida. Inicia sesión de nuevo.');
     const row = await this.users.findRefreshByHash(sha256(raw));
