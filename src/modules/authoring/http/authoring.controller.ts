@@ -9,20 +9,20 @@ export class AuthoringController {
 
   create = async (req: Req<{ Body: z.infer<typeof CreateRecipeBody> }>, reply: Rep) => {
     reply.code(201);
-    return ok(await this.c.services.authoring.create(req.user.id, req.body));
+    return ok(await this.c.commands.execute('authoring.create', { userId: req.user.id, input: req.body }));
   };
 
   patch = async (req: Req<{ Params: z.infer<typeof MyRecipeParams>; Body: z.infer<typeof PatchRecipeBody> }>) => {
     const ifMatch = req.headers['if-match'];
-    return ok(await this.c.services.authoring.patch(req.user.id, req.params.recipeId, req.body, Array.isArray(ifMatch) ? ifMatch[0] : ifMatch));
+    return ok(await this.c.commands.execute('authoring.patch', { userId: req.user.id, recipeId: req.params.recipeId, patch: req.body, ifMatch: Array.isArray(ifMatch) ? ifMatch[0] : ifMatch }));
   };
 
-  publish = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>) => ok(await this.c.services.authoring.publish(req.user.id, req.params.recipeId));
+  publish = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>) => ok(await this.c.commands.execute('authoring.publish', { userId: req.user.id, recipeId: req.params.recipeId }));
 
-  unpublish = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>) => ok(await this.c.services.authoring.unpublish(req.user.id, req.params.recipeId));
+  unpublish = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>) => ok(await this.c.commands.execute('authoring.unpublish', { userId: req.user.id, recipeId: req.params.recipeId }));
 
   remove = async (req: Req<{ Params: z.infer<typeof MyRecipeParams> }>, reply: Rep) => {
-    await this.c.services.authoring.remove(req.user.id, req.params.recipeId);
+    await this.c.commands.execute('authoring.remove', { userId: req.user.id, recipeId: req.params.recipeId });
     return reply.code(204).send();
   };
 

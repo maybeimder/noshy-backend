@@ -10,7 +10,7 @@ export class ProfileController {
   get = async (req: Req) => ok(await this.c.services.profile.get(req.user.id, req.tz));
 
   patchPreferences = async (req: Req<{ Body: z.infer<typeof PreferencesPatchBody> }>) => {
-    await this.c.services.preferences.patch(req.user.id, req.body);
+    await this.c.commands.execute('onboarding.patchPreferences', { userId: req.user.id, input: req.body });
     return ok(await this.c.services.profile.get(req.user.id, req.tz));
   };
 }

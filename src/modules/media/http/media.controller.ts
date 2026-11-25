@@ -10,13 +10,13 @@ export class MediaController {
 
   requestUpload = async (req: Req<{ Body: z.infer<typeof UploadBody> }>, reply: Rep) => {
     reply.code(201);
-    return ok(await this.c.services.media.requestUpload(req.user.id, req.body));
+    return ok(await this.c.commands.execute('media.requestUpload', { userId: req.user.id, input: req.body }));
   };
 
   /** Recibe el archivo del driver local de storage (equivale al PUT directo a S3). */
   storagePut = async (req: Req<{ Querystring: z.infer<typeof StorageUploadQuery> }>, reply: Rep) => {
     if (!Buffer.isBuffer(req.body)) throw Errors.unsupportedMedia();
-    await this.c.services.media.receiveUpload(req.query.key, req.query.expires, req.query.sig, req.body, req.headers['content-type']?.split(';')[0]);
+    await this.c.commands.execute('media.receiveUpload', { key: req.query.key, expires: req.query.expires, sig: req.query.sig, body: req.body, contentType: req.headers['content-type']?.split(';')[0] });
     return reply.code(200).send();
   };
 

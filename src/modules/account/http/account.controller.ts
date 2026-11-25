@@ -7,20 +7,20 @@ import type { ExportParams, SettingsPatchBody, VerifyEmailBody } from './account
 export class AccountController {
   constructor(private readonly c: Container) {}
 
-  verifyEmail = async (req: Req<{ Body: z.infer<typeof VerifyEmailBody> }>) => ok(await this.c.services.account.verifyEmail(req.user.id, req.body.code));
+  verifyEmail = async (req: Req<{ Body: z.infer<typeof VerifyEmailBody> }>) => ok(await this.c.commands.execute('account.verifyEmail', { userId: req.user.id, code: req.body.code }));
 
   resendEmail = async (req: Req, reply: Rep) => {
-    await this.c.services.account.sendVerification(req.user.id, { enforceCooldown: true });
+    await this.c.commands.execute('account.resendVerification', { userId: req.user.id });
     return reply.code(204).send();
   };
 
   settings = async (req: Req) => ok(await this.c.services.account.settings(req.user.id));
 
-  patchSettings = async (req: Req<{ Body: z.infer<typeof SettingsPatchBody> }>) => ok(await this.c.services.account.updateSettings(req.user.id, req.body));
+  patchSettings = async (req: Req<{ Body: z.infer<typeof SettingsPatchBody> }>) => ok(await this.c.commands.execute('account.updateSettings', { userId: req.user.id, patch: req.body }));
 
   requestExport = async (req: Req, reply: Rep) => {
     reply.code(202);
-    return ok(await this.c.services.account.requestExport(req.user.id));
+    return ok(await this.c.commands.execute('account.requestExport', { userId: req.user.id }));
   };
 
   exportStatus = async (req: Req<{ Params: z.infer<typeof ExportParams> }>) => ok(await this.c.services.account.exportStatus(req.user.id, req.params.exportId));
@@ -34,7 +34,7 @@ export class AccountController {
   };
 
   deleteAccount = async (req: Req, reply: Rep) => {
-    await this.c.services.account.deleteAccount(req.user.id);
+    await this.c.commands.execute('account.delete', { userId: req.user.id });
     return reply.code(204).send();
   };
 }

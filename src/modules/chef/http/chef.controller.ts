@@ -11,7 +11,7 @@ export class ChefController {
   constructor(private readonly c: Container) {}
 
   openThread = async (req: Req<{ Body: z.infer<typeof ThreadBody> }>, reply: Rep) => {
-    const r = await this.c.services.chef.openRecipeThread(req.user.id, req.body.context.recipeId);
+    const r = await this.c.commands.execute('chef.openRecipeThread', { userId: req.user.id, recipeId: req.body.context.recipeId });
     reply.code(r.created ? 201 : 200);
     return ok(r.thread);
   };
@@ -28,7 +28,7 @@ export class ChefController {
     const body = { clientMessageId: req.body.clientMessageId, input: req.body.input as ChefInput };
     if (!wantsStream) {
       const events: StreamEvent[] = [];
-      await this.c.services.chef.send(req.user.id, req.params.threadId, body, (e) => void events.push(e));
+      await this.c.commands.execute('chef.sendMessage', { userId: req.user.id, threadId: req.params.threadId, body, emit: (e) => void events.push(e) });
       const created = events.filter((e): e is Extract<StreamEvent, { event: 'message.created' }> => e.event === 'message.created').map((e) => e.data.message);
       const chefMsg = created.find((m) => m.role === 'chef');
       const blocks = events.filter((e): e is Extract<StreamEvent, { event: 'block.completed' }> => e.event === 'block.completed').map((e) => e.data.block);
@@ -49,7 +49,7 @@ export class ChefController {
       reply.raw.write(`event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`);
     };
     try {
-      await this.c.services.chef.send(req.user.id, req.params.threadId, body, write);
+      await this.c.commands.execute('chef.sendMessage', { userId: req.user.id, threadId: req.params.threadId, body, emit: write });
     } catch (err) {
       if (!started) throw err;
       req.log.error({ err }, 'falló el stream del chef');
@@ -60,17 +60,17 @@ export class ChefController {
   };
 
   read = async (req: Req<{ Params: z.infer<typeof ThreadParams>; Body: z.infer<typeof ReadBody> }>, reply: Rep) => {
-    await this.c.services.chef.markRead(req.user.id, req.params.threadId, req.body.lastReadMessageId);
+    await this.c.commands.execute('chef.markRead', { userId: req.user.id, threadId: req.params.threadId, lastReadMessageId: req.body.lastReadMessageId });
     return reply.code(204).send();
   };
 
   feedback = async (req: Req<{ Params: z.infer<typeof MessageParams>; Body: z.infer<typeof FeedbackBody> }>, reply: Rep) => {
-    await this.c.services.chef.feedback(req.user.id, req.params.messageId, req.body.blockId, req.body.rating);
+    await this.c.commands.execute('chef.giveFeedback', { userId: req.user.id, messageId: req.params.messageId, blockId: req.body.blockId, rating: req.body.rating });
     return reply.code(204).send();
   };
 
   insights = async (req: Req<{ Querystring: z.infer<typeof MessagesQuery> }>) => this.c.services.insights.list(req.user.id, req.query.limit, req.query.cursor);
 
   voteInsight = async (req: Req<{ Params: z.infer<typeof InsightParams>; Body: z.infer<typeof InsightVoteBody> }>) =>
-    ok(await this.c.services.insights.vote(req.user.id, req.params.insightId, req.body.vote));
+    ok(await this.c.commands.execute('chef.voteInsight', { userId: req.user.id, insightId: req.params.insightId, vote: req.body.vote }));
 }

@@ -2,5 +2,6 @@
 export * from './shopping.model.js';
 export * from './shopping.repository.js';
 export * from './shopping.service.js';
+export * from './commands/shopping.commands.js';
 export * from './http/shopping.routes.js';
 export * from './events/shopping.observers.js';

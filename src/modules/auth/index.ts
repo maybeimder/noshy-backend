@@ -4,5 +4,6 @@ export * from './auth.providers.js';
 export * from './auth.repository.js';
 export * from './auth.service.js';
 export * from './token.service.js';
+export * from './commands/auth.commands.js';
 export * from './http/auth.routes.js';
 export * from './http/auth.middleware.js';

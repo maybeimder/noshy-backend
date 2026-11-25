@@ -8,6 +8,9 @@ import { ProcessedEventsLedger } from './core/events/ledger.js';
 import { SubjectRegistry } from './core/events/subject.js';
 import { EventSystem } from './core/events/system.js';
 import { DomainEventFactory } from './core/events/domain-event.factory.js';
+import { CommandBus } from './core/commands/command-bus.js';
+import { logCommands } from './infrastructure/command-bus/logging.middleware.js';
+import { createCommandHandlers } from './infrastructure/command-bus/register-handlers.js';
 import { EventTransportFactory } from './infrastructure/event-bus/event-transport.factory.js';
 import { ProviderFactory, type Providers } from './infrastructure/providers.factory.js';
 import { AccountRepository, AccountService } from './modules/account/index.js';
@@ -146,11 +149,15 @@ export async function createContainer(env: Env, log: FastifyBaseLogger, override
     profile,
   };
 
+  // Comandos: HTTP → CommandBus → handler del módulo → servicio.
+  const commands = new CommandBus(createCommandHandlers(services), [logCommands(log)]);
+
   return {
     env,
     log,
     pg,
     mongo,
+    commands,
     events,
     outbox,
     providers,

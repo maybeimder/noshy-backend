@@ -15,7 +15,7 @@ export class ReceiptsController {
     const storeField = file.fields.storeId;
     const storeId = storeField && 'value' in storeField ? String(storeField.value) || null : null;
     reply.code(202);
-    return ok(await this.c.services.receipts.upload(req.user.id, { buffer, contentType: file.mimetype }, storeId));
+    return ok(await this.c.commands.execute('receipts.upload', { userId: req.user.id, file: { buffer, contentType: file.mimetype }, storeId }));
   };
 
   get = async (req: Req<{ Params: z.infer<typeof ReceiptParams> }>) => ok(await this.c.services.receipts.get(req.user.id, req.params.receiptId));
@@ -23,5 +23,5 @@ export class ReceiptsController {
   items = async (req: Req<{ Params: z.infer<typeof ReceiptParams> }>) => ok(await this.c.services.receipts.items(req.user.id, req.params.receiptId));
 
   reviewItem = async (req: Req<{ Params: z.infer<typeof ReceiptItemParams>; Body: z.infer<typeof ReceiptItemBody> }>) =>
-    ok(await this.c.services.receipts.reviewItem(req.user.id, req.tz, req.params.receiptId, req.params.itemId, req.body.addToPantry));
+    ok(await this.c.commands.execute('receipts.reviewItem', { userId: req.user.id, tz: req.tz, receiptId: req.params.receiptId, itemId: req.params.itemId, addToPantry: req.body.addToPantry }));
 }

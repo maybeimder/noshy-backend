@@ -16,17 +16,17 @@ export class HomeController {
 
   logMeal = async (req: Req<{ Params: z.infer<typeof DayParams>; Body: z.infer<typeof LogMealBody> }>, reply: Rep) => {
     reply.code(201);
-    return ok(await this.c.services.days.log(req.user.id, req.params.date, req.tz, req.body as LogMealInput));
+    return ok(await this.c.commands.execute('home.logMeal', { userId: req.user.id, date: req.params.date, tz: req.tz, input: req.body as LogMealInput }));
   };
 
-  deleteMeal = async (req: Req<{ Params: z.infer<typeof MealParams> }>) => ok(await this.c.services.days.remove(req.user.id, req.params.date, req.tz, req.params.mealId));
+  deleteMeal = async (req: Req<{ Params: z.infer<typeof MealParams> }>) => ok(await this.c.commands.execute('home.deleteMeal', { userId: req.user.id, date: req.params.date, tz: req.tz, mealId: req.params.mealId }));
 
   recommendations = async (req: Req<{ Querystring: z.infer<typeof RecommendationsQuery> }>) => this.c.services.recommendations.recommend(req.user.id, req.query);
 
   nudges = async (req: Req<{ Querystring: z.infer<typeof NudgesQuery> }>) => ok(await this.c.services.nudges.list(req.user.id, req.query.placement));
 
   dismissNudge = async (req: Req<{ Params: z.infer<typeof NudgeParams>; Body: z.infer<typeof DismissBody> }>, reply: Rep) => {
-    await this.c.services.nudges.dismiss(req.user.id, req.params.nudgeId, req.body.reason);
+    await this.c.commands.execute('home.dismissNudge', { userId: req.user.id, nudgeId: req.params.nudgeId, reason: req.body.reason });
     return reply.code(204).send();
   };
 }

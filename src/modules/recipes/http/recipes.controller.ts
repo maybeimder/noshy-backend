@@ -13,7 +13,7 @@ export class RecipesController {
 
   applyAdaptation = async (req: Req<{ Params: z.infer<typeof RecipeIdParam>; Body: z.infer<typeof ApplyAdaptationBody> }>, reply: Rep) => {
     reply.code(201);
-    return ok(await this.c.services.recipes.applyProposal(req.user.id, req.params.recipeId, req.body.proposalId));
+    return ok(await this.c.commands.execute('recipes.applyProposal', { userId: req.user.id, recipeId: req.params.recipeId, proposalId: req.body.proposalId }));
   };
 
   saved = async (req: Req<{ Querystring: z.infer<typeof Page> }>) => this.c.services.recipes.saved(req.user.id, req.query);
@@ -21,18 +21,18 @@ export class RecipesController {
   shared = async (req: Req<{ Params: z.infer<typeof SharedRecipeParams> }>) => ok(await this.c.services.recipes.publicView(req.params.key));
 
   save = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>, reply: Rep) => {
-    await this.c.services.recipes.setSaved(req.user.id, req.params.recipeId, true);
+    await this.c.commands.execute('recipes.setSaved', { userId: req.user.id, recipeId: req.params.recipeId, saved: true });
     return reply.code(204).send();
   };
 
   unsave = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>, reply: Rep) => {
-    await this.c.services.recipes.setSaved(req.user.id, req.params.recipeId, false);
+    await this.c.commands.execute('recipes.setSaved', { userId: req.user.id, recipeId: req.params.recipeId, saved: false });
     return reply.code(204).send();
   };
 
-  like = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>) => ok(await this.c.services.recipes.setLiked(req.user.id, req.params.recipeId, true));
+  like = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>) => ok(await this.c.commands.execute('recipes.setLiked', { userId: req.user.id, recipeId: req.params.recipeId, liked: true }));
 
-  unlike = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>) => ok(await this.c.services.recipes.setLiked(req.user.id, req.params.recipeId, false));
+  unlike = async (req: Req<{ Params: z.infer<typeof RecipeIdParam> }>) => ok(await this.c.commands.execute('recipes.setLiked', { userId: req.user.id, recipeId: req.params.recipeId, liked: false }));
 
   cooked = async (req: Req<{ Querystring: z.infer<typeof CookedQuery> }>) => this.c.services.kitchen.cooked(req.user.id, req.query);
 

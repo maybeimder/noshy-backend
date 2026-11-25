@@ -11,18 +11,18 @@ export class MenusController {
 
   get = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.services.menus.get(req.user.id, req.params.menuId));
 
-  retry = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.services.menus.retry(req.user.id, req.params.menuId, req.tz));
+  retry = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.commands.execute('menus.retry', { userId: req.user.id, menuId: req.params.menuId, tz: req.tz }));
 
-  regenerate = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.services.menus.regenerate(req.user.id, req.params.menuId, req.tz));
+  regenerate = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) => ok(await this.c.commands.execute('menus.regenerate', { userId: req.user.id, menuId: req.params.menuId, tz: req.tz }));
 
   addEntry = async (req: Req<{ Params: z.infer<typeof MenuParams>; Body: z.infer<typeof AddMenuEntryBody> }>) =>
-    ok(await this.c.services.menus.addEntry(req.user.id, req.params.menuId, req.body));
+    ok(await this.c.commands.execute('menus.addEntry', { userId: req.user.id, menuId: req.params.menuId, input: req.body }));
 
   patchEntry = async (req: Req<{ Params: z.infer<typeof MenuEntryParams>; Body: z.infer<typeof PatchMenuEntryBody> }>) =>
-    ok(await this.c.services.menus.patchEntry(req.user.id, req.params.menuId, req.params.entryId, req.body));
+    ok(await this.c.commands.execute('menus.patchEntry', { userId: req.user.id, menuId: req.params.menuId, entryId: req.params.entryId, patch: req.body }));
 
-  removeEntry = async (req: Req<{ Params: z.infer<typeof MenuEntryParams> }>) => ok(await this.c.services.menus.removeEntry(req.user.id, req.params.menuId, req.params.entryId));
+  removeEntry = async (req: Req<{ Params: z.infer<typeof MenuEntryParams> }>) => ok(await this.c.commands.execute('menus.removeEntry', { userId: req.user.id, menuId: req.params.menuId, entryId: req.params.entryId }));
 
   toShoppingList = async (req: Req<{ Params: z.infer<typeof MenuParams> }>) =>
-    ok(await this.c.services.menus.toShoppingList(req.user.id, req.tz, req.params.menuId, this.c.services.shopping));
+    ok(await this.c.commands.execute('menus.toShoppingList', { userId: req.user.id, tz: req.tz, menuId: req.params.menuId }));
 }

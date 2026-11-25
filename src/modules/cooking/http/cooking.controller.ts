@@ -10,7 +10,7 @@ export class CookingController {
 
   start = async (req: Req<{ Body: z.infer<typeof StartBody> }>, reply: Rep) => {
     reply.code(201);
-    return ok(await this.c.services.cooking.start(req.user.id, req.body));
+    return ok(await this.c.commands.execute('cooking.start', { userId: req.user.id, input: req.body }));
   };
 
   active = async (req: Req, reply: Rep) => {
@@ -22,14 +22,14 @@ export class CookingController {
 
   events = async (req: Req<{ Params: z.infer<typeof SessionParams>; Body: z.infer<typeof EventsBody> }>, reply: Rep) => {
     reply.code(202);
-    return ok(await this.c.services.cooking.recordEvents(req.user.id, req.params.sessionId, req.body.events as CookingEventInput[]));
+    return ok(await this.c.commands.execute('cooking.recordEvents', { userId: req.user.id, sessionId: req.params.sessionId, events: req.body.events as CookingEventInput[] }));
   };
 
   complete = async (req: Req<{ Params: z.infer<typeof SessionParams>; Body: z.infer<typeof CompleteBody> }>) =>
-    ok(await this.c.services.cooking.complete(req.user.id, req.tz, req.params.sessionId, req.body));
+    ok(await this.c.commands.execute('cooking.complete', { userId: req.user.id, tz: req.tz, sessionId: req.params.sessionId, input: req.body }));
 
   abandon = async (req: Req<{ Params: z.infer<typeof SessionParams>; Body: z.infer<typeof AbandonBody> }>, reply: Rep) => {
-    await this.c.services.cooking.abandon(req.user.id, req.params.sessionId, req.body);
+    await this.c.commands.execute('cooking.abandon', { userId: req.user.id, sessionId: req.params.sessionId, input: req.body });
     return reply.code(204).send();
   };
 }

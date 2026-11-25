@@ -3,5 +3,6 @@ export * from './account.model.js';
 export * from './account.providers.js';
 export * from './account.repository.js';
 export * from './account.service.js';
+export * from './commands/account.commands.js';
 export * from './http/account.routes.js';
 export * from './events/account.observers.js';

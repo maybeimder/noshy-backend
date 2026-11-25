@@ -13,18 +13,18 @@ export class PantryController {
 
   add = async (req: Req<{ Body: z.infer<typeof PantryAddBody> }>, reply: Rep) => {
     reply.code(201);
-    return ok(await this.c.services.pantry.add(req.user.id, req.tz, req.body));
+    return ok(await this.c.commands.execute('pantry.add', { userId: req.user.id, tz: req.tz, body: req.body }));
   };
 
   patch = async (req: Req<{ Params: z.infer<typeof PantryItemParams>; Body: z.infer<typeof PantryPatchBody> }>) =>
-    ok(await this.c.services.pantry.patch(req.user.id, req.params.itemId, req.body));
+    ok(await this.c.commands.execute('pantry.patch', { userId: req.user.id, itemId: req.params.itemId, patch: req.body }));
 
   remove = async (req: Req<{ Params: z.infer<typeof PantryItemParams>; Querystring: z.infer<typeof PantryDeleteQuery> }>, reply: Rep) => {
-    await this.c.services.pantry.remove(req.user.id, req.params.itemId, req.query.addToShoppingList === 'true');
+    await this.c.commands.execute('pantry.remove', { userId: req.user.id, itemId: req.params.itemId, addToShoppingList: req.query.addToShoppingList === 'true' });
     return reply.code(204).send();
   };
 
   suggestions = async (req: Req<{ Querystring: z.infer<typeof SuggestionsQuery> }>) => ok(await this.c.services.pantrySetup.suggestions(req.user.id, req.query.limit));
 
-  bulk = async (req: Req<{ Body: z.infer<typeof BulkBody> }>) => ok(await this.c.services.pantrySetup.bulk(req.user.id, req.tz, req.body));
+  bulk = async (req: Req<{ Body: z.infer<typeof BulkBody> }>) => ok(await this.c.commands.execute('pantry.bulkSetup', { userId: req.user.id, tz: req.tz, input: req.body }));
 }
