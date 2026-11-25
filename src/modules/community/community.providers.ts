@@ -1,4 +1,4 @@
-/** Moderación automática de contenido publicado (recetas, comentarios). Enchufable. */
+/** Moderación automática de contenido publicado (recetas, comentarios). */
 export interface Moderation {
   review(input: { text: string; imageKeys: string[] }): Promise<{ approved: boolean; reason?: string }>;
 }

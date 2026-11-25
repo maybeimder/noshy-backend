@@ -12,7 +12,7 @@ export const users = pgTable(
     email: text().notNull(),
     passwordHash: text(),
     emailVerified: boolean().notNull().default(false),
-    grammaticalGender: text(), // feminine | masculine | neutral | null (Q22)
+    grammaticalGender: text(), // feminine | masculine | neutral | null
     onboardingStatus: text().notNull().default('pending'), // pending | inProgress | completed
     acceptedTermsVersion: text().notNull(),
     avatarUrl: text(),

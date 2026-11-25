@@ -1,6 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 
-/** Envío de correos transaccionales. El driver por defecto registra en el log; enchufa SES/SendGrid/Resend aquí. */
+/** Envío de correos transaccionales. El driver por defecto registra en el log. */
 export type Mail = { to: string; subject: string; text: string; tag: 'emailVerification' | 'dataExport' };
 
 export interface Mailer {

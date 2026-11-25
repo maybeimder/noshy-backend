@@ -68,7 +68,7 @@ const FLAVOR_LABELS: Record<string, string> = {
   comfort: 'Reconfortante',
   smoky: 'Ahumado',
 };
-/** Sabores que chocan con una alergia: no se ofrecen como «Te encanta» (Q3). */
+/** Sabores que chocan con una alergia: no se ofrecen como «Te encanta». */
 const FLAVOR_CONFLICTS: Record<string, string[]> = { cheese: ['lactose'], creamy: [] };
 
 const fmtKcal = (n: number) => `${n.toLocaleString('es-CO')} kcal`;
@@ -282,7 +282,7 @@ export class PreferencesService {
     };
   }
 
-  /** Filas de «Tus preferencias» con el texto ya redactado (Q22: forma neutra sin dato de género). */
+  /** Filas de «Tus preferencias» con el texto ya redactado (forma neutra sin dato de género). */
   rows(p: PreferencesRow, grammaticalGender: string | null) {
     const activity = ACTIVITY_LEVELS.find((a) => a.id === p.activityLevel);
     const activityText =

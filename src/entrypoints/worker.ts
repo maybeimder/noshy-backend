@@ -9,7 +9,7 @@ import { Scheduler } from '../infrastructure/workers/scheduler.js';
  *   - consume `noshy.events.observers` y notifica al Subject de cada usuario (observers);
  *   - corre el relay del outbox (respaldo de la API: si la API se cae tras escribir, aquí se publica);
  *   - corre las tareas programadas.
- * Úsalo con RUN_WORKERS=false en las instancias HTTP para escalar cada parte por separado.
+ * Con RUN_WORKERS=false en las instancias HTTP, cada parte escala por separado.
  */
 const env = loadEnv();
 const log = pino({ level: env.LOG_LEVEL });

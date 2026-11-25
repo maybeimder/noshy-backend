@@ -1,8 +1,7 @@
 import type { Channel } from 'amqplib';
 
 /**
- * Nombres de exchanges y colas. Con el prefijo por defecto (`noshy`) son los mismos del backend anterior,
- * así que un broker que ya los tenga declarados se reutiliza tal cual.
+ * Nombres de exchanges y colas. Un broker que ya los tenga declarados con los mismos argumentos se reutiliza.
  *
  *   outbox relay ──publish(routingKey = tipo del evento)──▶ noshy.events (topic)
  *                                                              │ '#'

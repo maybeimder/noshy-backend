@@ -1,7 +1,7 @@
 import type { MealSlotId } from './catalog.js';
 
 /**
- * Franjas del día. `mealsPerDay` cuenta comidas principales; los snacks se agregan aparte (Q13).
+ * Franjas del día. `mealsPerDay` cuenta comidas principales; los snacks se agregan aparte.
  * El backend arma las franjas y el front no las deduce.
  */
 export type SlotDef = { slot: MealSlotId; label: string; window: { from: string; to: string } };

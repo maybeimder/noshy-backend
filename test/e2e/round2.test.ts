@@ -4,10 +4,10 @@ import { client, drain, ONBOARDING_PAYLOAD, resetDatabases, testApp } from './he
 import type { LogMailer } from '../../src/modules/account/account.providers.js';
 
 /**
- * Lo que quedó pendiente en la iteración anterior: verificación de email, Ajustes, exportación y borrado
+ * Cuenta y complementos: verificación de email, Ajustes, exportación y borrado
  * de cuenta, Mi semana, estimación de calorías, revisión de facturas y lista compartida pública.
  */
-describe('pendientes v0.3', () => {
+describe('cuenta y complementos', () => {
   let app: FastifyInstance;
   let api: ReturnType<typeof client>;
   let other: ReturnType<typeof client>;

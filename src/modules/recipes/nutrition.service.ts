@@ -4,7 +4,7 @@ import type { CatalogService } from '../catalog/catalog.service.js';
 import { toGrams } from '../../core/domain/quantity.js';
 import { Errors, field } from '../../core/shared/errors.js';
 
-/** «Comí afuera»: estima kcal y macros de un texto libre antes de registrarlo (Q14). */
+/** «Comí afuera»: estima kcal y macros de un texto libre antes de registrarlo. */
 export class NutritionService {
   constructor(
     private readonly recipes: RecipesRepository,

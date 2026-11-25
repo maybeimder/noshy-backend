@@ -4,7 +4,7 @@ import type { RecipeCard } from '../recipes/recipes.service.js';
 /**
  * Motor de respuestas del chef. El servicio le da contexto y herramientas; el motor decide
  * qué responder y lo entrega en trozos (texto que se va escribiendo o bloques completos).
- * `RuleBasedChefEngine` cubre los flujos del diseño de forma determinista; un motor con LLM
+ * `RuleBasedChefEngine` cubre los flujos fijos de forma determinista; un motor con LLM
  * puede reemplazarlo implementando la misma interfaz.
  */
 export type ChefInputResolved =

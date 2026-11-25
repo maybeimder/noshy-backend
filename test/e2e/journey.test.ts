@@ -107,7 +107,7 @@ describe('recorrido completo', () => {
           expect.objectContaining({ label: 'Cilantro', kind: 'custom', matchedIngredientId: 'ing_cilantro' }),
         ]),
       );
-      // «Queso» no se ofrece como gusto porque choca con «sin lactosa» (Q3)
+      // «Queso» no se ofrece como gusto porque choca con «sin lactosa»
       expect(r.body.data.summary.loves.map((l: any) => l.id)).not.toContain('cheese');
       s.menuId = r.body.data.firstMenu.menuId;
       const replay = await api.post('/me/onboarding/complete', ONBOARDING_PAYLOAD, { headers: { 'idempotency-key': key } });

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 /**
  * Foto de referencia por tipo de plato, para recetas que no traen (`recipes_raw` no tiene ninguna) o que creó el chef.
- * Archivos en `src/assets/dishes` (CC0 o dominio público, ver CREDITS.md). Aquí va cuántas hay de cada plato.
+ * Archivos en `src/assets/dishes` (CC0 o dominio público, ver CREDITS.md). El valor es cuántas hay de cada plato.
  */
 export const DISH_PHOTOS: Record<string, number> = {
   cookies: 3, brownies: 3, cake: 3, 'chocolate-cake': 3, cupcakes: 1, cheesecake: 2, pie: 3, crumble: 2, pudding: 2, 'ice-cream': 3, candy: 2,

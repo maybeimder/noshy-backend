@@ -4,7 +4,7 @@
 # Mongo NO va en el compose: se usa el del homelab (MONGO_URL en .env, ej. mongodb://…@192.168.1.10:27017/food?authSource=food).
 #
 # Todo escucha en 127.0.0.1 del host: lo publica Nginx (web-deploy). Para exponer la API directo
-# a la red local sin Nginx, define API_BIND=0.0.0.0 en .env.
+# a la red local sin Nginx: API_BIND=0.0.0.0 en .env.
 # La API y el worker corren en modo dev (tsx watch) con ./src montado: `git pull` y se recargan solos.
 #
 # `api` debe ser el PRIMER servicio: web-deploy genera su override de puertos para el primer servicio.

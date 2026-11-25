@@ -3,7 +3,7 @@ import { addDays, weekStart } from '../shared/time.js';
 export const STREAK_MIN_PER_WEEK = 3;
 
 /**
- * Semanas seguidas con al menos 3 recetas cocinadas (Q25).
+ * Semanas seguidas con al menos 3 recetas cocinadas.
  * La semana en curso cuenta si ya llegó al mínimo; si no, se empieza a contar desde la anterior.
  */
 export function streakWeeks(cookedLocalDates: string[], today: string, minPerWeek = STREAK_MIN_PER_WEEK): number {

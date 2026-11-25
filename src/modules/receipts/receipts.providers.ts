@@ -1,5 +1,5 @@
 /**
- * OCR + interpretación de facturas. El parser real (un servicio de visión o un LLM) se enchufa aquí.
+ * OCR + interpretación de facturas. Un parser real (servicio de visión o LLM) implementa la misma interfaz.
  * `MockReceiptParser` devuelve una factura plausible para desarrollar el flujo completo sin proveedor.
  */
 export type ParsedReceipt =

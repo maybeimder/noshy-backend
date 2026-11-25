@@ -3,7 +3,7 @@ import { CATEGORY_LABELS } from '../../core/domain/catalog.js';
 import type { Unit } from '../../core/domain/quantity.js';
 
 /**
- * Alimentos en inglés que sabemos contar, para estimar macros de `recipes_raw` sin modelo. Valores por 100 g (USDA, redondeados).
+ * Alimentos en inglés con valores conocidos, para estimar macros de `recipes_raw` sin modelo. Valores por 100 g (USDA, redondeados).
  * nombre ; patrón ; kcal,prot,carb,grasa ; g por taza ; g por unidad ; categoría ; banderas
  * Banderas: D lácteo · E huevo · G gluten · N frutos secos · M carne · F pescado · S mariscos · A otro origen animal · ~ se usa en cantidades que no pesan.
  */
